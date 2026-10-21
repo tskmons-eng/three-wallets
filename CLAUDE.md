@@ -47,7 +47,10 @@
 
 - iPhone の Safari で「ホーム画面に追加」して使うウェブアプリ（PWA）。データは iPhone の中（IndexedDB）。公開先は GitHub Pages（公開リポジトリ。お金のデータは入れない）。
 - バックアップは自社の XServer に置く小さな受け口へ自動で送る。送る前に iPhone の中で合言葉で暗号化する。**車管理アプリのコードには触らない**（2026-10-21 利用者が案1を選んだ）。
-- 本番の状態を話す前に、必ず実物を確かめる。推測で「出しました」と言わない。
+- アプリ：`app/` を GitHub `tskmons-eng/three-wallets` の main に push すると、Actions がテストを通してから https://tskmons-eng.github.io/three-wallets/ に出す。版を上げるときは `app/js/main.js` の VERSION と `app/sw.js` の CACHE を揃える（揃えないと iPhone に古い版が残る）。
+- 受け口：`server/index.php` を XServer の `~/seemore-grp.com/public_html/wallet-backup/index.php` へ scp（鍵 `~/.ssh/seemorecoltd.key`、ポート 10022、車管理と同じ）。データは `~/seemore-grp.com/wallet_backup_data/`（公開フォルダの外・700）。**中のデータを消したり試しに送ったりしない**（最初に送ったIDだけが持ち主になる）。
+- 確認：`npm test`（計算と暗号化）、`bash tests/server.test.sh`（受け口を手元で動かす）。
+- 本番の状態を話す前に、必ず実物を確かめる（Actions の結果・ページの応答・サーバーのファイルの SHA-256）。推測で「出しました」と言わない。
 
 ## 6. 記録の置き場所
 
