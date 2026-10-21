@@ -1,8 +1,8 @@
-import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName } from './calc.js';
+import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName } from './calc.js';
 import * as store from './store.js';
 import * as bk from './backup.js';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.1.1';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -120,7 +120,7 @@ function home() {
   return `
   <div class="top"><h1>3つの財布</h1>${backupLine()}</div>
   <div class="wallets">${S.wallets.map(w => { const d = monthDelta(S, w.id, nowKey); return `
-    <button class="wcard" data-act="adjust" data-w="${w.id}" aria-label="${esc(w.name)}の残高を合わせる">
+    <button class="wcard" data-act="wallet" data-w="${w.id}" aria-label="${esc(w.name)}の財布の詳細">
       <span class="wdot" style="background:${wColor(w.id)}"></span>
       <span><span class="wname">${esc(w.name)}の財布</span><br><span class="wsub num">今月 ${d >= 0 ? '+' : ''}${yen(d)}</span></span>
       <span class="wbal num">${yen(balance(S, w.id))}<small> 円</small></span>
@@ -328,7 +328,7 @@ function drawLoan() {
   const { d, c } = F, n = owed(S, d, c);
   const recs = S.recs.filter(r => r.kind === 'loan' && ((r.wallet === d && r.to === c) || (r.wallet === c && r.to === d))).sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0));
   const word = isPerson(d) ? '返してもらった' : '返す';
-  $('#layer').innerHTML = `<div class="scrim" data-act="close"></div>
+  layer.html = `<div class="scrim" data-act="close"></div>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="貸し借りの中身"><div class="in">
     ${sheetHead(esc(N(d)) + ' → ' + esc(N(c)))}
     <div class="amount num">${n > 0 ? yen(n) : '0'}<small>円</small></div>
@@ -345,6 +345,16 @@ const keys = () => `<div class="keys">${['1', '2', '3', '4', '5', '6', '7', '8',
 const delBlock = what => F.editId ? (F.confirmDel
   ? `<div class="confirm">${what}を消します。元に戻せません。<div><button class="btn danger" data-act="del">消す</button><button class="btn ghost" data-act="nodel">やめる</button></div></div>`
   : `<button class="btn danger" data-act="askdel">${what}を消す</button>`) : '';
+// シートを描く。同じシートの描き直し（数字キーを押したときなど）では、開く動きを出さず、スクロール位置を保つ
+const layer = {
+  set html(v) {
+    const old = document.querySelector('#layer .sheet');
+    const top = old ? old.scrollTop : 0;
+    $('#layer').innerHTML = v;
+    const now = document.querySelector('#layer .sheet');
+    if (old && now) { now.classList.add('still'); now.scrollTop = top; }
+  },
+};
 const sheetHead = title => `<div class="grab"></div><div class="shead"><button data-act="close">閉じる</button><b>${title}</b><span class="sp"></span></div>`;
 
 function drawSheet() {
@@ -352,12 +362,13 @@ function drawSheet() {
   if (F.kind === 'adj') return drawAdjust();
   if (F.kind === 'pick') return drawPick();
   if (F.kind === 'loandetail') return drawLoan();
+  if (F.kind === 'wallet') return drawWallet();
   const u = usage(S);
   const cats = S.cats.filter(c => c.kind === F.mode && (!c.hidden || c.id === F.cat)).sort((a, b) => (u[b.id] || 0) - (u[a.id] || 0));
   const amt = Number(F.amount || 0);
   const wChips = (sel, attr) => S.wallets.map(w => `<button class="chip" ${attr}="${w.id}" aria-pressed="${sel === w.id}">${esc(w.name)}</button>`).join('');
   const meta = `<div class="meta"><input type="date" id="fdate" value="${F.date}" max="${today()}" aria-label="日付"><input type="text" id="fmemo" placeholder="メモ（なくてよい）" value="${esc(F.memo)}" enterkeyhint="done"></div>`;
-  $('#layer').innerHTML = `<div class="scrim" data-act="close"></div>
+  layer.html = `<div class="scrim" data-act="close"></div>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="記録"><div class="in">
     ${sheetHead(F.editId ? '記録を直す' : '記録する')}
     <div class="seg four">${[['out', '支出'], ['in', '収入'], ['move', '移動'], ['loan', '貸し借り']].map(([m, n]) => `<button data-mode="${m}" aria-pressed="${F.mode === m}">${n}</button>`).join('')}</div>
@@ -412,11 +423,42 @@ async function commit(rec) {
   F = null; drawSheet(); render(); await save();
 }
 
+// 財布の詳細：残高、今月の出入り、その財布の記録。残高合わせは一番下（あまり使わないので）
+function openWallet(wid) { F = { kind: 'wallet', wallet: wid, more: false }; drawSheet(); }
+function drawWallet() {
+  const wid = F.wallet, key = monthOf(today());
+  let tin = 0, tout = 0, other = 0;
+  for (const r of S.recs) {
+    if (monthOf(r.date) !== key) continue;
+    const e = effect(r, wid);
+    if (!e) continue;
+    if (r.kind === 'in') tin += e; else if (r.kind === 'out') tout -= e; else other += e;
+  }
+  const list = S.recs.filter(r => effect(r, wid) !== 0).sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0));
+  const shown = F.more ? list : list.slice(0, 30);
+  layer.html = `<div class="scrim" data-act="close"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="財布の詳細"><div class="in">
+    ${sheetHead(esc(W(wid).name) + 'の財布')}
+    <div class="amount num">${yen(balance(S, wid))}<small>円</small></div>
+    <div class="sum3">
+      <div><small>今月 入った</small><span class="num i">${yen(tin)}</span></div>
+      <div><small>今月 出た</small><span class="num o">${yen(tout)}</span></div>
+      <div><small>移動・貸し借り</small><span class="num">${other >= 0 ? '+' : ''}${yen(other)}</span></div>
+    </div>
+    <h3 class="sh">記録（押すと直せます）</h3>
+    <div>${shown.length ? shown.map(r => { const e = effect(r, wid); return `<button class="hitem" data-act="edit" data-id="${r.id}">
+      <span>${esc(recLabel(r))}</span><span class="num ${e > 0 ? 'i' : 'o'}">${e > 0 ? '+' : '−'}${yen(Math.abs(e))}</span>
+      <span class="m">${esc(r.date)}${r.fixedId ? '・自動' : ''}${r.memo ? '・' + esc(r.memo) : ''}</span></button>`; }).join('') : '<div class="empty">まだ記録がありません</div>'}</div>
+    ${shown.length < list.length ? `<button class="btn ghost" data-act="wmore">もっと前を見る（あと${list.length - shown.length}件）</button>` : ''}
+    <button class="btn ghost" data-act="adjust" data-w="${wid}">残高を合わせる（実際の額とずれたとき）</button>
+  </div></div>`;
+}
+
 function openAdjust(wid) { F = { kind: 'adj', wallet: wid, amount: '' }; drawSheet(); }
 function adjBase() { return balance(S, F.wallet) - (F.editId ? (S.recs.find(x => x.id === F.editId) || { amount: 0 }).amount : 0); }
 function drawAdjust() {
   const now = adjBase(), amt = F.amount === '' ? null : Number(F.amount), diff = amt === null ? 0 : amt - now;
-  $('#layer').innerHTML = `<div class="scrim" data-act="close"></div>
+  layer.html = `<div class="scrim" data-act="close"></div>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="残高を合わせる"><div class="in">
     ${sheetHead(esc(W(F.wallet).name) + 'の残高を合わせる')}
     <p class="hint">通帳やアプリで見た、今の本当の残高を打ちます。差の分を「残高合わせ」として1件だけ記録します（支出にも収入にも数えません）。</p>
@@ -436,7 +478,7 @@ async function openPick() {
   F.loading = false; if (F && F.kind === 'pick') drawSheet();
 }
 function drawPick() {
-  $('#layer').innerHTML = `<div class="scrim" data-act="close"></div>
+  layer.html = `<div class="scrim" data-act="close"></div>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="前の日に戻す"><div class="in">
     ${sheetHead('前の日のバックアップに戻す')}
     ${F.loading ? '<p class="hint">サーバーに聞いています…</p>' : ''}
@@ -492,6 +534,8 @@ document.addEventListener('click', async e => {
     case 'new': return openEntry();
     case 'close': F = null; return drawSheet();
     case 'edit': return openEntry(S.recs.find(x => x.id === d.id));
+    case 'wallet': return openWallet(d.w);
+    case 'wmore': F.more = true; return drawSheet();
     case 'adjust': return openAdjust(d.w);
     case 'saveloan': {
       readMeta();
