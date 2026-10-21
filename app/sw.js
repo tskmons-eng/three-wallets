@@ -1,6 +1,6 @@
 // 電波がなくても開けるように、アプリの部品をこの端末にしまっておく。
 // 版を上げたら CACHE の名前も変える（scripts/check.sh が main.js の VERSION と同じか確かめる）。
-const CACHE = 'three-wallets-1.1.1';
+const CACHE = 'three-wallets-1.2.0';
 const FILES = ['./', './index.html', './style.css', './manifest.webmanifest', './js/main.js', './js/calc.js', './js/store.js', './js/backup.js', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

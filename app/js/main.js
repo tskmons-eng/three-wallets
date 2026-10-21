@@ -2,7 +2,7 @@ import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, t
 import * as store from './store.js';
 import * as bk from './backup.js';
 
-export const VERSION = '1.1.1';
+export const VERSION = '1.2.0';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -341,7 +341,7 @@ function drawLoan() {
       <span class="m">${esc(r.date)}${r.fixedId ? '・毎月の返済（自動）' : ''}${r.memo ? '・' + esc(r.memo) : ''}</span></button>`; }).join('')}</div>
   </div></div>`;
 }
-const keys = () => `<div class="keys">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '00', '0', '⌫'].map(k => `<button class="key" data-key="${k}" aria-label="${k === '⌫' ? '1文字消す' : k}">${k}</button>`).join('')}</div>`;
+const keys = () => `<div class="keys">${['1', '2', '3', '⌫', '4', '5', '6', '00', '7', '8', '9', '0'].map(k => `<button class="key" data-key="${k}" aria-label="${k === '⌫' ? '1文字消す' : k}">${k}</button>`).join('')}</div>`;
 const delBlock = what => F.editId ? (F.confirmDel
   ? `<div class="confirm">${what}を消します。元に戻せません。<div><button class="btn danger" data-act="del">消す</button><button class="btn ghost" data-act="nodel">やめる</button></div></div>`
   : `<button class="btn danger" data-act="askdel">${what}を消す</button>`) : '';
@@ -369,24 +369,23 @@ function drawSheet() {
   const wChips = (sel, attr) => S.wallets.map(w => `<button class="chip" ${attr}="${w.id}" aria-pressed="${sel === w.id}">${esc(w.name)}</button>`).join('');
   const meta = `<div class="meta"><input type="date" id="fdate" value="${F.date}" max="${today()}" aria-label="日付"><input type="text" id="fmemo" placeholder="メモ（なくてよい）" value="${esc(F.memo)}" enterkeyhint="done"></div>`;
   layer.html = `<div class="scrim" data-act="close"></div>
-  <div class="sheet" role="dialog" aria-modal="true" aria-label="記録"><div class="in">
-    ${sheetHead(F.editId ? '記録を直す' : '記録する')}
-    <div class="seg four">${[['out', '支出'], ['in', '収入'], ['move', '移動'], ['loan', '貸し借り']].map(([m, n]) => `<button data-mode="${m}" aria-pressed="${F.mode === m}">${n}</button>`).join('')}</div>
-    <div class="amount num" aria-live="polite">${amt ? yen(amt) : '<span class="ph">0</span>'}<small>円</small></div>
-    ${F.mode === 'loan' ? loanForm(amt, meta) : F.mode === 'move' ? `
+  <div class="sheet entry" role="dialog" aria-modal="true" aria-label="${F.editId ? '記録を直す' : '記録する'}"><div class="in">
+    <div class="ehead"><button data-act="close" class="closex" aria-label="閉じる">×</button>
+      <div class="seg four">${[['out', '支出'], ['in', '収入'], ['move', '移動'], ['loan', '貸し借り']].map(([m, n]) => `<button data-mode="${m}" aria-pressed="${F.mode === m}">${n}</button>`).join('')}</div></div>
+    <div class="amount num" aria-live="polite">${F.editId ? '<span class="etag">直す</span>' : ''}${amt ? yen(amt) : '<span class="ph">0</span>'}<small>円</small></div>
+    ${keys()}
+    ${F.mode === 'loan' ? loanForm(amt) : F.mode === 'move' ? `
       <div class="pick"><span>から</span><div class="chips">${wChips(F.wallet, 'data-from')}</div></div>
       <div class="pick"><span>へ</span><div class="chips">${wChips(F.to, 'data-to')}</div></div>
-      ${meta}${keys()}
       <button class="btn" data-act="savemove" ${!amt || F.wallet === F.to ? 'disabled' : ''}>${F.wallet === F.to ? '同じ財布です' : F.editId ? '直す' : '移動を記録'}</button>`
     : `
-      <div class="meta"><span>財布</span><div class="chips"><button class="chip" aria-pressed="${!F.walletManual}" data-w="">自動</button>${wChips(F.walletManual ? F.wallet : '', 'data-w')}</div></div>
-      <p class="hint">${amt ? (F.editId ? '分類を押すと直します' : '分類を押すと保存します') : '金額を打ってから、分類を押します'}</p>
-      <div class="cats">${cats.map(c => `<button class="cat" data-cat="${c.id}" aria-pressed="${F.cat === c.id}" ${amt ? '' : 'disabled'}>${esc(c.name)}<small>${esc(W(F.walletManual ? F.wallet : c.wallet).name)}</small></button>`).join('')}</div>
-      ${meta}${keys()}`}
+      <div class="cats" aria-label="${amt ? '分類を押すと保存します' : '金額を打ってから分類を押します'}">${cats.map(c => `<button class="cat" data-cat="${c.id}" aria-pressed="${F.cat === c.id}" ${amt ? '' : 'disabled'}>${esc(c.name)}<small>${esc(W(F.walletManual ? F.wallet : c.wallet).name)}</small></button>`).join('')}</div>
+      <div class="meta"><span>財布</span><div class="chips"><button class="chip" aria-pressed="${!F.walletManual}" data-w="">自動</button>${wChips(F.walletManual ? F.wallet : '', 'data-w')}</div></div>`}
+    ${meta}
     ${delBlock('この記録')}
   </div></div>`;
 }
-function loanForm(amt, meta) {
+function loanForm(amt) {
   const parties = [...S.wallets.map(w => w.id), ...people(S)];
   const chips = (sel, attr) => parties.map(id => `<button class="chip" ${attr}="${esc(id)}" aria-pressed="${sel === id}">${esc(N(id))}</button>`).join('')
     + `<button class="chip" ${attr}="new" aria-pressed="${sel === 'new'}">＋人</button>`;
@@ -398,11 +397,9 @@ function loanForm(amt, meta) {
     const S2 = { ...S, recs: S.recs.filter(r => r.id !== F.editId) };
     hint = `今：${pairText(S2, a, b)}` + (amt ? ` → 記録後：${pairText({ ...S2, recs: [...S2.recs, { kind: 'loan', wallet: a, to: b, amount: amt }] }, a, b)}` : '');
   }
-  return `<p class="hint">お金が動いた向きで選びます。借りたら「相手 → 自分の財布」、返したら「自分の財布 → 相手」。</p>
-    <div class="pick"><span>から</span><div class="chips">${chips(a, 'data-from')}</div></div>${a === 'new' ? nameBox('from', F.newFrom) : ''}
+  return `<div class="pick"><span>から</span><div class="chips">${chips(a, 'data-from')}</div></div>${a === 'new' ? nameBox('from', F.newFrom) : ''}
     <div class="pick"><span>へ</span><div class="chips">${chips(b, 'data-to')}</div></div>${b === 'new' ? nameBox('to', F.newTo) : ''}
-    <p class="hint loanhint">${esc(err || hint)}</p>
-    ${meta}${keys()}
+    <p class="hint loanhint">${esc(err || hint || '借りたら「相手 → 自分の財布」、返したら「自分の財布 → 相手」')}</p>
     <button class="btn" data-act="saveloan" ${!amt || err ? 'disabled' : ''}>${err || (F.editId ? '直す' : '貸し借りを記録')}</button>`;
 }
 function readMeta() {

@@ -149,3 +149,33 @@ section h2{font-size:15px;margin:0;font-weight:700}
 .confirm.plain .btn{flex:1}
 .sheet.still{animation:none}
 html{touch-action:manipulation}
+/* v1.2.0 余白を詰め、入力シートを1画面に収める */
+.wrap{gap:10px;padding-block:8px calc(100px + env(safe-area-inset-bottom,0px))}
+.wallets{gap:6px}
+.wcard{padding:9px 12px}
+.wbal{font-size:21px}
+.month{gap:8px}
+.panel{padding:2px 12px}
+.row{padding:7px 0}
+.sum3 div{padding:7px 10px}
+.set{padding:10px 12px;gap:8px}
+.sheet.entry{max-height:100%;padding-top:8px}
+.sheet.entry .in{gap:6px}
+.ehead{display:grid;grid-template-columns:32px 1fr;gap:6px;align-items:center}
+.closex{font-size:24px;line-height:1;color:var(--muted);height:34px}
+.seg button{padding:6px 0;font-size:13px}
+.amount{font-size:34px;min-height:44px;padding:0 4px;line-height:44px}
+.amount small{font-size:17px}
+.etag{font-size:12px;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 8px;margin-right:8px;vertical-align:middle;font-family:var(--f-body)}
+.keys{grid-template-columns:repeat(4,1fr);gap:5px}
+.key{height:46px;font-size:21px}
+.key[data-key="⌫"]{font-size:18px;color:var(--muted)}
+.cats{grid-template-columns:repeat(4,1fr);gap:5px}
+.cat{min-height:46px;padding:4px 2px;font-size:13px;border-radius:10px;gap:0}
+.cat small{font-size:9px}
+.meta{gap:6px}
+.meta input[type=date]{min-height:32px;padding:4px 6px;font-size:16px}
+.meta input[type=text]{padding:5px 8px}
+.chip{padding:5px 11px}
+.pick{gap:6px}
+.btn{padding:12px}
