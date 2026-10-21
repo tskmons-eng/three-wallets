@@ -179,3 +179,5 @@ html{touch-action:manipulation}
 .chip{padding:5px 11px}
 .pick{gap:6px}
 .btn{padding:12px}
+.row.drill{width:100%;text-align:left}
+.row.drill:active,.loanrow:active,.wcard:active{background:var(--sunk)}

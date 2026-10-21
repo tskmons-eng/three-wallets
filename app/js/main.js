@@ -2,7 +2,7 @@ import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, t
 import * as store from './store.js';
 import * as bk from './backup.js';
 
-export const VERSION = '1.2.0';
+export const VERSION = '1.3.0';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -110,11 +110,11 @@ function home() {
   const rows = (obj, prev, kind) => {
     const ks = Object.keys(obj).sort((a, b) => obj[b] - obj[a]);
     if (!ks.length) return `<div class="empty">この月はまだありません</div>`;
-    return ks.map(k => { const c = C(k); return `<div class="row">
+    return ks.map(k => { const c = C(k); return `<button class="row drill" data-act="drill" data-dc="${esc(k)}">
       <div class="lab"><span class="tag" style="background:${wColor(c.wallet)}">${esc(W(c.wallet).name)}</span><span>${esc(c.name)}</span></div>
       <div class="amt num ${kind}">${yen(obj[k])}</div>
       ${kind === 'o' ? `<div class="bar"><i style="width:${obj[k] / maxOut * 100}%;background:${wColor(c.wallet)}"></i></div>` : ''}
-      <div class="prev">先月 ${prev[k] ? yen(prev[k]) + '円' : 'なし'}</div></div>`; }).join('');
+      <div class="prev">先月 ${prev[k] ? yen(prev[k]) + '円' : 'なし'}</div></button>`; }).join('');
   };
   const nowKey = monthOf(today());
   return `
@@ -136,10 +136,10 @@ function home() {
       <div><small>出た</small><span class="num o">${yen(t.tout)}</span></div>
       <div><small>差し引き</small><span class="num">${t.tin - t.tout >= 0 ? '+' : ''}${yen(t.tin - t.tout)}</span></div>
     </div>
-    <div><h3 class="sh">出たお金</h3><div class="panel">${rows(t.out, p.out, 'o')}</div></div>
+    <div><h3 class="sh">出たお金（押すと中身）</h3><div class="panel">${rows(t.out, p.out, 'o')}</div></div>
     <div><h3 class="sh">入ったお金</h3><div class="panel">${rows(t.inn, p.inn, 'i')}</div></div>
     <div><h3 class="sh">財布の間の移動（支出にも収入にも数えない）</h3><div class="panel">${
-      Object.keys(t.mv).length ? Object.entries(t.mv).map(([k, v]) => `<div class="row"><div class="lab"><span>${esc(moveLabel(k))}</span></div><div class="amt num">${yen(v)}</div><div class="prev">先月 ${p.mv[k] ? yen(p.mv[k]) + '円' : 'なし'}</div></div>`).join('') : '<div class="empty">この月はまだありません</div>'}</div></div>
+      Object.keys(t.mv).length ? Object.entries(t.mv).map(([k, v]) => `<button class="row drill" data-act="drill" data-mv="${esc(k)}"><div class="lab"><span>${esc(moveLabel(k))}</span></div><div class="amt num">${yen(v)}</div><div class="prev">先月 ${p.mv[k] ? yen(p.mv[k]) + '円' : 'なし'}</div></button>`).join('') : '<div class="empty">この月はまだありません</div>'}</div></div>
   </section>`;
 }
 
@@ -363,6 +363,7 @@ function drawSheet() {
   if (F.kind === 'pick') return drawPick();
   if (F.kind === 'loandetail') return drawLoan();
   if (F.kind === 'wallet') return drawWallet();
+  if (F.kind === 'drill') return drawDrill();
   const u = usage(S);
   const cats = S.cats.filter(c => c.kind === F.mode && (!c.hidden || c.id === F.cat)).sort((a, b) => (u[b.id] || 0) - (u[a.id] || 0));
   const amt = Number(F.amount || 0);
@@ -451,6 +452,26 @@ function drawWallet() {
   </div></div>`;
 }
 
+// 内訳の詳細：その月のその分類（または移動）の記録。押すと直せる
+function openDrill(cat, mv) { F = { kind: 'drill', cat, mv, month: V.month, wf: V.wf }; drawSheet(); }
+function drawDrill() {
+  const { cat, mv, month, wf } = F;
+  const inW = r => wf === 'all' || r.wallet === wf || r.to === wf;
+  const list = S.recs.filter(r => monthOf(r.date) === month && inW(r) && (mv ? r.kind === 'move' && r.wallet + '>' + r.to === mv : (r.kind === 'out' || r.kind === 'in') && r.cat === cat))
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0));
+  const sum = list.reduce((a, r) => a + r.amount, 0);
+  const title = (mv ? moveLabel(mv) : C(cat).name) + '・' + monthLabel(month) + (wf === 'all' ? '' : '・' + W(wf).name);
+  layer.html = `<div class="scrim" data-act="close"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="内訳の中身"><div class="in">
+    ${sheetHead(esc(title))}
+    <div class="amount num">${yen(sum)}<small>円・${list.length}件</small></div>
+    <div>${list.map(r => `<button class="hitem" data-act="edit" data-id="${r.id}">
+      <span>${esc(r.memo || recLabel(r))} ${r.kind === 'in' || r.kind === 'out' ? `<span class="tag" style="background:${wColor(r.wallet)}">${esc(W(r.wallet).name)}</span>` : ''}</span>
+      <span class="num ${r.kind === 'in' ? 'i' : r.kind === 'out' ? 'o' : ''}">${yen(r.amount)}</span>
+      <span class="m">${esc(r.date)}${r.fixedId ? '・固定費（自動）' : ''}</span></button>`).join('') || '<div class="empty">ありません</div>'}</div>
+  </div></div>`;
+}
+
 function openAdjust(wid) { F = { kind: 'adj', wallet: wid, amount: '' }; drawSheet(); }
 function adjBase() { return balance(S, F.wallet) - (F.editId ? (S.recs.find(x => x.id === F.editId) || { amount: 0 }).amount : 0); }
 function drawAdjust() {
@@ -532,6 +553,7 @@ document.addEventListener('click', async e => {
     case 'close': F = null; return drawSheet();
     case 'edit': return openEntry(S.recs.find(x => x.id === d.id));
     case 'wallet': return openWallet(d.w);
+    case 'drill': return openDrill(d.dc, d.mv);
     case 'wmore': F.more = true; return drawSheet();
     case 'adjust': return openAdjust(d.w);
     case 'saveloan': {
@@ -622,6 +644,7 @@ async function boot() {
     return;
   }
   if (!isValidState(S)) { V.setup = { step: 'hello' }; return renderSetup(); }
+  store.askPersist();
   if (applyFixed(S, today())) await save();
   render();
   scheduleBackup(1200);

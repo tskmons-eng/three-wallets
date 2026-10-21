@@ -5,7 +5,9 @@
 //   バックアップID … 持ち主の目印。新しいiPhoneでも合言葉だけで同じものが作れる（固定の塩を使う）
 //   暗号の鍵       … 端末ごとの塩で作る。塩は暗号文と一緒に送るので、戻すときは合言葉と塩から作り直せる
 
-export const SERVER = 'https://seemore-grp.com/wallet-backup/';
+export let SERVER = 'https://seemore-grp.com/wallet-backup/';
+// テストのときだけ、手元で動かした受け口に向ける
+export function setServer(url) { SERVER = url; }
 const ITER = 310000;
 const enc = new TextEncoder(), dec = new TextDecoder();
 
