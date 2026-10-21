@@ -142,3 +142,8 @@ section h2{font-size:15px;margin:0;font-weight:700}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);border-radius:12px;padding:10px 14px;font-size:14px;display:flex;gap:14px;align-items:center;z-index:30;width:max-content;max-width:calc(100% - 32px)}
 .toast button{color:var(--accent);font-weight:700;filter:brightness(1.4);white-space:nowrap}
 @media (prefers-reduced-motion:no-preference){.sheet{animation:up .18s ease-out}@keyframes up{from{transform:translateY(24px);opacity:.6}}}
+.seg.four{grid-template-columns:repeat(4,1fr)}
+.loanrow{width:100%;text-align:left}
+.pname{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:16px;width:100%}
+.loanhint{text-align:left;color:var(--fg);font-size:13px}
+.confirm.plain .btn{flex:1}

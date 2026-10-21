@@ -1,8 +1,8 @@
-import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, monthDelta, totals, applyFixed, usage, defaultState, isValidState } from './calc.js';
+import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName } from './calc.js';
 import * as store from './store.js';
 import * as bk from './backup.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -16,6 +16,16 @@ let F = null;   // 開いているシート
 
 const W = id => S.wallets.find(w => w.id === id) || { id, name: '?' };
 const C = id => S.cats.find(c => c.id === id) || { id, name: '（消した分類）', kind: 'out', wallet: 'me' };
+// 貸し借りの相手の名前（財布なら財布の名前、人ならその名前）
+const N = id => isPerson(id) ? personName(id) : W(id).name;
+// 「debtor が creditor に あと n 円返す」の言い方
+const owesText = (debtor, creditor, n) => isPerson(debtor) ? `${N(debtor)}に ${yen(n)}円 貸している（${N(creditor)}の財布）`
+  : isPerson(creditor) ? `${N(creditor)}に ${yen(n)}円 借りている（${N(debtor)}の財布）`
+  : `${N(debtor)}が${N(creditor)}に ${yen(n)}円 借りている`;
+function pairText(S2, a, b) {
+  const n = owed(S2, a, b);
+  return n > 0 ? owesText(a, b, n) : n < 0 ? owesText(b, a, -n) : '貸し借りなし';
+}
 const wColor = id => `var(--w-${['co', 'me', 'inv'].includes(id) ? id : 'me'})`;
 
 /* ================= 保存とバックアップ ================= */
@@ -116,6 +126,7 @@ function home() {
       <span class="wbal num">${yen(balance(S, w.id))}<small> 円</small></span>
     </button>`; }).join('')}</div>
   <div class="total"><span>3つの合計</span><b class="num">${yen(all)} 円</b></div>
+  ${loanBlock(all)}
   <section class="month">
     <div class="mhead"><h2>内訳</h2>
       <div class="mnav"><button data-act="mprev" aria-label="前の月">‹</button><span>${monthLabel(key)}</span><button data-act="mnext" aria-label="次の月" ${key >= nowKey ? 'disabled' : ''}>›</button></div></div>
@@ -132,9 +143,21 @@ function home() {
   </section>`;
 }
 
+function loanBlock(all) {
+  const pos = loanPositions(S);
+  if (!pos.length) return '';
+  const nw = netWorth(S);
+  return `${nw !== all ? `<div class="total"><span>人との貸し借りを含めると</span><b class="num">${yen(nw)} 円</b></div>` : ''}
+  <section><h3 class="sh">貸し借りの残り（押すと中身と「返す」）</h3><div class="panel">${pos.map(p => `
+    <button class="row loanrow" data-act="loan" data-d="${esc(p.debtor)}" data-c="${esc(p.creditor)}">
+      <div class="lab"><span>${esc(N(p.debtor))} → ${esc(N(p.creditor))}へ返す</span></div><div class="amt num">${yen(p.amount)}</div>
+      <div class="prev">${esc(owesText(p.debtor, p.creditor, p.amount))}</div></button>`).join('')}</div></section>`;
+}
+
 function recLabel(x) {
   if (x.kind === 'move') return `移動 ${W(x.wallet).name} → ${W(x.to).name}`;
   if (x.kind === 'adj') return `残高合わせ（${W(x.wallet).name}）`;
+  if (x.kind === 'loan') return `貸し借り ${N(x.wallet)} → ${N(x.to)}`;
   return C(x.cat).name;
 }
 function hist() {
@@ -147,7 +170,7 @@ function hist() {
     const sign = x.kind === 'in' ? 'i' : x.kind === 'out' ? 'o' : '';
     const amt = x.kind === 'adj' ? (x.amount >= 0 ? '+' : '') + yen(x.amount) : (x.kind === 'out' ? '−' : x.kind === 'in' ? '+' : '') + yen(x.amount);
     out += `<button class="hitem" data-act="edit" data-id="${x.id}">
-      <span>${esc(recLabel(x))} ${x.kind !== 'move' && x.kind !== 'adj' ? `<span class="tag" style="background:${wColor(x.wallet)}">${esc(W(x.wallet).name)}</span>` : ''}</span>
+      <span>${esc(recLabel(x))} ${x.kind === 'in' || x.kind === 'out' ? `<span class="tag" style="background:${wColor(x.wallet)}">${esc(W(x.wallet).name)}</span>` : ''}</span>
       <span class="num ${sign}">${amt}</span>
       ${x.memo || x.fixedId ? `<span class="m">${x.fixedId ? '固定費（自動）' : ''}${x.memo && x.fixedId ? '・' : ''}${esc(x.memo)}</span>` : ''}</button>`;
   }
@@ -159,9 +182,10 @@ function settings() {
   const wSel = (v, attr) => `<select ${attr}>${S.wallets.map(w => `<option value="${w.id}" ${w.id === v ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select>`;
   const used = usage(S);
   const destSel = (f, i) => {
-    const cur = f.to ? 'to:' + f.to : 'cat:' + f.cat;
+    const cur = f.loanTo ? 'loan:' + f.loanTo : f.to ? 'to:' + f.to : 'cat:' + f.cat;
     const opts = S.cats.filter(c => c.kind === 'out' && (!c.hidden || 'cat:' + c.id === cur)).map(c => [`cat:${c.id}`, c.name])
-      .concat(S.wallets.filter(w => w.id !== f.wallet).map(w => [`to:${w.id}`, `${w.name}の財布へ移動`]));
+      .concat(S.wallets.filter(w => w.id !== f.wallet).map(w => [`to:${w.id}`, `${w.name}の財布へ移動`]))
+      .concat([...S.wallets.map(w => w.id), ...people(S)].filter(id => id !== f.wallet).map(id => [`loan:${id}`, `貸し借り：${N(id)}へ返す`]));
     return `<select id="fk${i}" data-set="fdest" data-i="${i}" aria-label="分類">${opts.map(([v, n]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
   };
   return `<div class="top"><h1>設定</h1></div>
@@ -178,7 +202,7 @@ function settings() {
     <p>記録に使った分類は、消さずにボタンから隠します（前の月の合計が崩れないように）。</p>
     <button class="add" data-act="cadd">＋ 分類を足す</button></div>
   <div class="set"><h3>固定費（毎月その日に自動で記録）</h3>
-    <p>登録した日の翌日以降の分から自動で入ります。今日までに払った分は＋から入れてください。つみたてのように財布の間で動かすものは「〜の財布へ移動」を選びます。</p>
+    <p>登録した日の翌日以降の分から自動で入ります。今日までに払った分は＋から入れてください。つみたてのように財布の間で動かすものは「〜の財布へ移動」、毎月の返済は「貸し借り：〜へ返す」を選びます（残りより多くは返さず、返し終わったら止まります）。</p>
     ${S.fixed.length ? '' : '<div class="empty">まだありません</div>'}
     ${S.fixed.map((f, i) => `<div class="fcard">
       <div class="frow f1"><input id="fn${i}" value="${esc(f.name)}" placeholder="名前（家賃など）" data-set="fname" data-i="${i}" aria-label="名前">
@@ -295,8 +319,27 @@ function openEntry(rec) {
   F = rec
     ? { mode: rec.kind, amount: String(rec.amount), wallet: rec.wallet, walletManual: rec.kind !== 'move', to: rec.to || 'inv', cat: rec.cat, date: rec.date, memo: rec.memo || '', editId: rec.id }
     : { mode: 'out', amount: '', wallet: 'me', walletManual: false, to: 'inv', cat: null, date: today(), memo: '' };
-  if (F.mode === 'move' && F.wallet === F.to) F.to = F.wallet === 'inv' ? 'me' : 'inv';
+  if ((F.mode === 'move' || F.mode === 'loan') && F.wallet === F.to) F.to = F.wallet === 'inv' ? 'me' : 'inv';
   drawSheet();
+}
+// 貸し借りの詳細：その相手との借りた・返したの一覧と、返すボタン
+function openLoan(d, c) { F = { kind: 'loandetail', d, c }; drawSheet(); }
+function drawLoan() {
+  const { d, c } = F, n = owed(S, d, c);
+  const recs = S.recs.filter(r => r.kind === 'loan' && ((r.wallet === d && r.to === c) || (r.wallet === c && r.to === d))).sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0));
+  const word = isPerson(d) ? '返してもらった' : '返す';
+  $('#layer').innerHTML = `<div class="scrim" data-act="close"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="貸し借りの中身"><div class="in">
+    ${sheetHead(esc(N(d)) + ' → ' + esc(N(c)))}
+    <div class="amount num">${n > 0 ? yen(n) : '0'}<small>円</small></div>
+    <p class="hint">${esc(n > 0 ? owesText(d, c, n) : '全部返し終わりました')}</p>
+    ${n > 0 ? `<div class="confirm plain"><div><button class="btn" data-act="repayall">全額${word}</button><button class="btn ghost" data-act="repaypart">一部${word}</button></div></div>` : ''}
+    <h3 class="sh">これまで（押すと直せます）</h3>
+    <div>${recs.map(r => { const back = r.wallet === d; return `<button class="hitem" data-act="edit" data-id="${r.id}">
+      <span>${back ? (isPerson(d) ? '返してもらった' : '返した') : (isPerson(d) ? '貸した' : '借りた')}　${esc(N(r.wallet))} → ${esc(N(r.to))}</span>
+      <span class="num ${back ? 'i' : ''}">${back ? '−' : '+'}${yen(r.amount)}</span>
+      <span class="m">${esc(r.date)}${r.fixedId ? '・毎月の返済（自動）' : ''}${r.memo ? '・' + esc(r.memo) : ''}</span></button>`; }).join('')}</div>
+  </div></div>`;
 }
 const keys = () => `<div class="keys">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '00', '0', '⌫'].map(k => `<button class="key" data-key="${k}" aria-label="${k === '⌫' ? '1文字消す' : k}">${k}</button>`).join('')}</div>`;
 const delBlock = what => F.editId ? (F.confirmDel
@@ -308,6 +351,7 @@ function drawSheet() {
   if (!F) { $('#layer').innerHTML = ''; return; }
   if (F.kind === 'adj') return drawAdjust();
   if (F.kind === 'pick') return drawPick();
+  if (F.kind === 'loandetail') return drawLoan();
   const u = usage(S);
   const cats = S.cats.filter(c => c.kind === F.mode && (!c.hidden || c.id === F.cat)).sort((a, b) => (u[b.id] || 0) - (u[a.id] || 0));
   const amt = Number(F.amount || 0);
@@ -316,9 +360,9 @@ function drawSheet() {
   $('#layer').innerHTML = `<div class="scrim" data-act="close"></div>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="記録"><div class="in">
     ${sheetHead(F.editId ? '記録を直す' : '記録する')}
-    <div class="seg">${[['out', '支出'], ['in', '収入'], ['move', '移動']].map(([m, n]) => `<button data-mode="${m}" aria-pressed="${F.mode === m}">${n}</button>`).join('')}</div>
+    <div class="seg four">${[['out', '支出'], ['in', '収入'], ['move', '移動'], ['loan', '貸し借り']].map(([m, n]) => `<button data-mode="${m}" aria-pressed="${F.mode === m}">${n}</button>`).join('')}</div>
     <div class="amount num" aria-live="polite">${amt ? yen(amt) : '<span class="ph">0</span>'}<small>円</small></div>
-    ${F.mode === 'move' ? `
+    ${F.mode === 'loan' ? loanForm(amt, meta) : F.mode === 'move' ? `
       <div class="pick"><span>から</span><div class="chips">${wChips(F.wallet, 'data-from')}</div></div>
       <div class="pick"><span>へ</span><div class="chips">${wChips(F.to, 'data-to')}</div></div>
       ${meta}${keys()}
@@ -331,7 +375,29 @@ function drawSheet() {
     ${delBlock('この記録')}
   </div></div>`;
 }
-function readMeta() { const d = $('#fdate'), m = $('#fmemo'); if (d) F.date = d.value || today(); if (m) F.memo = m.value.trim(); }
+function loanForm(amt, meta) {
+  const parties = [...S.wallets.map(w => w.id), ...people(S)];
+  const chips = (sel, attr) => parties.map(id => `<button class="chip" ${attr}="${esc(id)}" aria-pressed="${sel === id}">${esc(N(id))}</button>`).join('')
+    + `<button class="chip" ${attr}="new" aria-pressed="${sel === 'new'}">＋人</button>`;
+  const nameBox = (side, v) => `<input type="text" class="pname" id="pn-${side}" placeholder="相手の名前" value="${esc(v || '')}" aria-label="相手の名前">`;
+  const a = F.wallet, b = F.to;
+  const err = a === b ? '同じ相手です' : (isPerson(a) || a === 'new') && (isPerson(b) || b === 'new') ? 'どちらかは自分の財布にしてください' : '';
+  let hint = '';
+  if (!err && a !== 'new' && b !== 'new') {
+    const S2 = { ...S, recs: S.recs.filter(r => r.id !== F.editId) };
+    hint = `今：${pairText(S2, a, b)}` + (amt ? ` → 記録後：${pairText({ ...S2, recs: [...S2.recs, { kind: 'loan', wallet: a, to: b, amount: amt }] }, a, b)}` : '');
+  }
+  return `<p class="hint">お金が動いた向きで選びます。借りたら「相手 → 自分の財布」、返したら「自分の財布 → 相手」。</p>
+    <div class="pick"><span>から</span><div class="chips">${chips(a, 'data-from')}</div></div>${a === 'new' ? nameBox('from', F.newFrom) : ''}
+    <div class="pick"><span>へ</span><div class="chips">${chips(b, 'data-to')}</div></div>${b === 'new' ? nameBox('to', F.newTo) : ''}
+    <p class="hint loanhint">${esc(err || hint)}</p>
+    ${meta}${keys()}
+    <button class="btn" data-act="saveloan" ${!amt || err ? 'disabled' : ''}>${err || (F.editId ? '直す' : '貸し借りを記録')}</button>`;
+}
+function readMeta() {
+  const pf = $('#pn-from'), pt = $('#pn-to');
+  if (pf) F.newFrom = pf.value;
+  if (pt) F.newTo = pt.value; const d = $('#fdate'), m = $('#fmemo'); if (d) F.date = d.value || today(); if (m) F.memo = m.value.trim(); }
 
 let lastSaved = null;
 async function commit(rec) {
@@ -409,7 +475,12 @@ document.addEventListener('click', async e => {
     if (F.kind !== 'adj') readMeta();
     return drawSheet();
   }
-  if (d.mode) { readMeta(); F.mode = d.mode; F.cat = null; if (d.mode === 'move' && F.wallet === F.to) F.to = F.wallet === 'inv' ? 'me' : 'inv'; return drawSheet(); }
+  if (d.mode) {
+    readMeta(); F.mode = d.mode; F.cat = null;
+    if (d.mode !== 'loan') { if (!S.wallets.some(w => w.id === F.wallet)) F.wallet = 'me'; if (!S.wallets.some(w => w.id === F.to)) F.to = 'inv'; }
+    if ((d.mode === 'move' || d.mode === 'loan') && F.wallet === F.to) F.to = F.wallet === 'inv' ? 'me' : 'inv';
+    return drawSheet();
+  }
   if ('w' in d && F && !d.act) { readMeta(); if (d.w) { F.wallet = d.w; F.walletManual = true; } else F.walletManual = false; return drawSheet(); }
   if (d.from) { readMeta(); F.wallet = d.from; return drawSheet(); }
   if (d.to) { readMeta(); F.to = d.to; return drawSheet(); }
@@ -422,6 +493,21 @@ document.addEventListener('click', async e => {
     case 'close': F = null; return drawSheet();
     case 'edit': return openEntry(S.recs.find(x => x.id === d.id));
     case 'adjust': return openAdjust(d.w);
+    case 'saveloan': {
+      readMeta();
+      const side = (v, name) => v === 'new' ? ((name || '').trim() ? 'p:' + name.trim() : null) : v;
+      const from = side(F.wallet, F.newFrom), to = side(F.to, F.newTo);
+      if (!from || !to) { $('.loanhint').textContent = '相手の名前を入れてください'; return; }
+      if (from === to) { $('.loanhint').textContent = '同じ相手です'; return; }
+      return commit({ kind: 'loan', amount: Number(F.amount), wallet: from, to, date: F.date, memo: F.memo, cat: undefined });
+    }
+    case 'loan': return openLoan(d.d, d.c);
+    case 'repayall': {
+      const n = owed(S, F.d, F.c); if (n <= 0) return;
+      const rec = { id: uid(), t: Date.now(), kind: 'loan', amount: n, wallet: F.d, to: F.c, date: today(), memo: '' };
+      S.recs.push(rec); lastSaved = rec.id; F = null; drawSheet(); render(); toast(`${N(rec.wallet)} → ${N(rec.to)} ${yen(n)}円を記録しました`, true); return save();
+    }
+    case 'repaypart': { const { d: dd, c: cc } = F; F = { mode: 'loan', amount: '', wallet: dd, to: cc, walletManual: true, cat: null, date: today(), memo: '' }; return drawSheet(); }
     case 'savemove': readMeta(); return commit({ kind: 'move', amount: Number(F.amount), wallet: F.wallet, to: F.to, date: F.date, memo: F.memo, cat: undefined });
     case 'saveadj': {
       const diff = Number(F.amount) - adjBase();
@@ -477,8 +563,9 @@ document.addEventListener('change', e => {
     case 'fname': f.name = v; break;
     case 'famt': f.amount = n; break;
     case 'fday': f.day = Math.min(31, Math.max(1, n || 1)); el.value = f.day; break;
-    case 'fwallet': f.wallet = v; if (f.to === v) { delete f.to; f.cat = 'fix'; } render(); break;
-    case 'fdest': if (v.startsWith('to:')) { f.to = v.slice(3); delete f.cat; } else { f.cat = v.slice(4); delete f.to; } break;
+    case 'fwallet': f.wallet = v; if (f.to === v || f.loanTo === v) { delete f.to; delete f.loanTo; f.cat = 'fix'; } render(); break;
+    case 'fdest': delete f.to; delete f.cat; delete f.loanTo;
+      if (v.startsWith('to:')) f.to = v.slice(3); else if (v.startsWith('loan:')) f.loanTo = v.slice(5); else f.cat = v.slice(4); break;
   }
   save();
 });
