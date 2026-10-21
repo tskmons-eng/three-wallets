@@ -6,4 +6,4 @@
 作業名：
 利用者のOK：
 
-（v1.3.0 まで公開済み。決めたことは docs/DECISIONS.md）
+（v1.4.0 まで公開済み。決めたことは docs/DECISIONS.md）

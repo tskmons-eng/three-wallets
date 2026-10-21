@@ -1,8 +1,9 @@
 import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName } from './calc.js';
 import * as store from './store.js';
 import * as bk from './backup.js';
+import * as L from './labels.js';
 
-export const VERSION = '1.3.0';
+export const VERSION = '1.4.0';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -14,19 +15,16 @@ let M = {};     // この端末だけの情報：バックアップID・鍵・�
 const V = { tab: 'home', month: monthOf(today()), wf: 'all', setup: null };
 let F = null;   // 開いているシート
 
-const W = id => S.wallets.find(w => w.id === id) || { id, name: '?' };
-const C = id => S.cats.find(c => c.id === id) || { id, name: '（消した分類）', kind: 'out', wallet: 'me' };
-// 貸し借りの相手の名前（財布なら財布の名前、人ならその名前）
-const N = id => isPerson(id) ? personName(id) : W(id).name;
-// 「debtor が creditor に あと n 円返す」の言い方
-const owesText = (debtor, creditor, n) => isPerson(debtor) ? `${N(debtor)}に ${yen(n)}円 貸している（${N(creditor)}の財布）`
-  : isPerson(creditor) ? `${N(creditor)}に ${yen(n)}円 借りている（${N(debtor)}の財布）`
-  : `${N(debtor)}が${N(creditor)}に ${yen(n)}円 借りている`;
-function pairText(S2, a, b) {
-  const n = owed(S2, a, b);
-  return n > 0 ? owesText(a, b, n) : n < 0 ? owesText(b, a, -n) : '貸し借りなし';
-}
-const wColor = id => `var(--w-${['co', 'me', 'inv'].includes(id) ? id : 'me'})`;
+// 呼び方は labels.js（PC の画面と同じ言い方にする）。ここでは今のデータ S を渡すだけ
+const W = id => L.walletOf(S, id);
+const C = id => L.catOf(S, id);
+const N = id => L.partyName(S, id);
+const owesText = (debtor, creditor, n) => L.owesText(S, debtor, creditor, n);
+const pairText = L.pairText;
+const recLabel = x => L.recLabel(S, x);
+const moveLabel = k => L.moveLabel(S, k);
+const monthLabel = L.monthLabel;
+const wColor = L.wColor;
 
 /* ================= 保存とバックアップ ================= */
 
@@ -99,8 +97,6 @@ function ico(n) {
   }[n];
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="${p}"/></svg>`;
 }
-const monthLabel = key => { const [y, m] = key.split('-'); return `${y}年${Number(m)}月`; };
-const moveLabel = k => { const [a, b] = k.split('>'); return `${W(a).name} → ${W(b).name}`; };
 
 function home() {
   const key = V.month, prevKey = shiftMonth(key, -1);
@@ -154,12 +150,6 @@ function loanBlock(all) {
       <div class="prev">${esc(owesText(p.debtor, p.creditor, p.amount))}</div></button>`).join('')}</div></section>`;
 }
 
-function recLabel(x) {
-  if (x.kind === 'move') return `移動 ${W(x.wallet).name} → ${W(x.to).name}`;
-  if (x.kind === 'adj') return `残高合わせ（${W(x.wallet).name}）`;
-  if (x.kind === 'loan') return `貸し借り ${N(x.wallet)} → ${N(x.to)}`;
-  return C(x.cat).name;
-}
 function hist() {
   const list = [...S.recs].sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0));
   if (!list.length) return `<div class="top"><h1>履歴</h1></div><div class="empty">まだ記録がありません。下の＋から入れます。</div>`;
@@ -217,7 +207,8 @@ function settings() {
     <div>${backupLine()}</div><p class="err" id="bkerr">${esc(M.lastError || '')}</p>
     <button class="btn ghost" data-act="bknow">今すぐ送る</button>
     <button class="btn ghost" data-act="restorepick">前の日のバックアップに戻す</button>
-    <p>新しいiPhoneでは、アプリを開いた最初の画面で「前のiPhoneから引き継ぐ」を選び、合言葉を入れます。<b>合言葉を忘れると戻せません。</b></p></div>
+    <p>新しいiPhoneでは、アプリを開いた最初の画面で「前のiPhoneから引き継ぐ」を選び、合言葉を入れます。<b>合言葉を忘れると戻せません。</b></p>
+    <p>PCでは https://tskmons-eng.github.io/three-wallets/pc.html を開いて合言葉を入れると、見るだけの画面が出ます（PCには何も残りません）。</p></div>
   <p class="ver">3つの財布 ${VERSION}・データはこのiPhoneの中にあります</p>`;
 }
 

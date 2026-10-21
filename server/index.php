@@ -10,16 +10,16 @@
 //   GET ?list=1     残っている日付の一覧
 //   GET ?date=Y-m-d その日の分を返す
 
-const ALLOWED_ORIGIN = 'https://tskmons-eng.github.io';
 const MAX_BYTES = 8 * 1024 * 1024;
 const KEEP_DAYS = 30;
 const KEEP_MIN = 3;
 const FAIL_LIMIT = 20;          // 1時間に、間違ったIDをこの回数送ってきたIPは止める
 
 date_default_timezone_set('Asia/Tokyo');
+$ORIGIN = getenv('WALLET_ALLOWED_ORIGIN') ?: 'https://tskmons-eng.github.io';   // テストのときだけ環境変数で変える
 $DATA = getenv('WALLET_BACKUP_DATA') ?: dirname(__DIR__, 2) . '/wallet_backup_data';   // 公開フォルダの外（テストのときだけ環境変数で変える）
 
-header('Access-Control-Allow-Origin: ' . ALLOWED_ORIGIN);
+header('Access-Control-Allow-Origin: ' . $ORIGIN);
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, X-Backup-Id');
 header('Access-Control-Max-Age: 86400');
