@@ -201,3 +201,17 @@ html{touch-action:manipulation}
 .frow input,.frow select{padding:3px 6px;min-height:30px}
 .set{gap:6px}
 .set h3{font-size:13px}
+/* v1.7.0 予算とお知らせ */
+.notices{display:flex;flex-direction:column;gap:4px}
+.notice{display:grid;grid-template-columns:1fr auto;align-items:center;border-radius:10px;background:var(--surface);border-left:4px solid var(--warn)}
+.notice.over{border-left-color:var(--out)}
+.notice .ntext{text-align:left;padding:7px 10px;font-size:13px}
+.notice.over .ntext{color:var(--out);font-weight:700}
+.notice .nx{padding:7px 12px;color:var(--muted);font-size:16px}
+.amt small.bud{font-size:11px;color:var(--muted);margin-left:2px}
+.bar.bud i{background:var(--in)}
+.bar.bud.warn i{background:var(--warn)}
+.bar.bud.over i{background:var(--out)}
+.bgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
+.brow{display:grid;grid-template-columns:1fr 96px;align-items:center;gap:6px;font-size:13px}
+.brow input{width:100%;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:3px 6px;min-height:30px;font-size:16px;text-align:right}

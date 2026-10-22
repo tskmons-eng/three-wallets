@@ -88,7 +88,7 @@ export function applyFixed(S, todayStr) {
 // 残り＝「A→B の合計 − B→A の合計」。保存せず毎回計算する。
 export const isPerson = id => typeof id === 'string' && id.startsWith('p:');
 export const personName = id => id.slice(2);
-const pairKey = (a, b) => JSON.stringify(a < b ? [a, b] : [b, a]);
+export const pairKey = (a, b) => JSON.stringify(a < b ? [a, b] : [b, a]);
 
 // debtor（返す側）が creditor（返してもらう側）に、あといくら返すか。マイナスなら逆向き
 export function owed(S, debtor, creditor) {
@@ -134,6 +134,36 @@ export function people(S) {
   for (const r of S.recs) if (r.kind === 'loan') for (const x of [r.wallet, r.to]) if (isPerson(x)) set.add(x);
   for (const f of S.fixed) if (isPerson(f.loanTo)) set.add(f.loanTo);
   return [...set];
+}
+
+// ---------- 予算とお知らせ ----------
+// 予算がある支出の分類の、その月の使った額。ratio は 使った÷予算
+export function budgetStatus(S, key) {
+  const t = totals(S, key);
+  return S.cats.filter(c => c.kind === 'out' && c.budget > 0)
+    .map(c => ({ cat: c.id, used: t.out[c.id] || 0, budget: c.budget, ratio: (t.out[c.id] || 0) / c.budget }));
+}
+export const budgetLevel = ratio => ratio > 1 ? 'over' : ratio >= 0.8 ? 'warn' : '';
+
+const dayDiff = (a, b) => Math.round((Date.UTC(...b.split('-').map((n, i) => i === 1 ? n - 1 : +n)) - Date.UTC(...a.split('-').map((n, i) => i === 1 ? n - 1 : +n))) / 86400000);
+
+// アプリを開いたときに出すお知らせ（予算・返す期限）。id は「消した」を覚える目印で、状態が悪くなると変わる
+export function notices(S, todayStr) {
+  const out = [];
+  for (const b of budgetStatus(S, monthOf(todayStr))) {
+    const level = budgetLevel(b.ratio);
+    if (level) out.push({ id: `budget:${b.cat}:${monthOf(todayStr)}:${level}`, kind: 'budget', level, ...b });
+  }
+  const due = S.loanDue || {};
+  for (const p of loanPositions(S)) {
+    const d = due[pairKey(p.debtor, p.creditor)];
+    if (!d) continue;
+    const days = dayDiff(todayStr, d);
+    if (days > 7) continue;
+    const level = days < 0 ? 'over' : 'warn';
+    out.push({ id: `due:${pairKey(p.debtor, p.creditor)}:${d}:${level}`, kind: 'due', level, days, due: d, ...p });
+  }
+  return out.sort((a, b) => (a.level === 'over' ? 0 : 1) - (b.level === 'over' ? 0 : 1));
 }
 
 // 分類ボタンの並び：よく使う順

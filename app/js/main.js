@@ -1,9 +1,9 @@
-import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName } from './calc.js';
+import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName, budgetStatus, budgetLevel, notices, pairKey } from './calc.js';
 import * as store from './store.js';
 import * as bk from './backup.js';
 import * as L from './labels.js';
 
-export const VERSION = '1.6.0';
+export const VERSION = '1.7.0';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -103,18 +103,20 @@ function home() {
   const t = totals(S, key, V.wf), p = totals(S, prevKey, V.wf);
   const all = S.wallets.reduce((a, w) => a + balance(S, w.id), 0);
   const maxOut = Math.max(1, ...Object.values(t.out));
+  const budgets = V.wf === 'all' ? Object.fromEntries(budgetStatus(S, key).map(b => [b.cat, b])) : {};
   const rows = (obj, prev, kind) => {
     const ks = Object.keys(obj).sort((a, b) => obj[b] - obj[a]);
     if (!ks.length) return `<div class="empty">この月はまだありません</div>`;
     return ks.map(k => { const c = C(k); return `<button class="row drill" data-act="drill" data-dc="${esc(k)}">
       <div class="lab"><span class="tag" style="background:${wColor(c.wallet)}">${esc(W(c.wallet).name)}</span><span>${esc(c.name)}</span></div>
       <div class="prev num">先月 ${prev[k] ? yen(prev[k]) : '—'}</div>
-      <div class="amt num ${kind}">${yen(obj[k])}</div>
-      ${kind === 'o' ? `<div class="bar"><i style="width:${obj[k] / maxOut * 100}%;background:${wColor(c.wallet)}"></i></div>` : ''}</button>`; }).join('');
+      <div class="amt num ${kind}">${yen(obj[k])}${budgets[k] ? `<small class="bud">/${yen(budgets[k].budget)}</small>` : ''}</div>
+      ${kind === 'o' ? budgetBar(budgets[k], obj[k] / maxOut, c) : ''}</button>`; }).join('');
   };
   const nowKey = monthOf(today());
   return `
   <div class="top"><h1>3つの財布</h1>${backupLine()}</div>
+  ${noticeList()}
   <div class="wallets">${S.wallets.map(w => { const d = monthDelta(S, w.id, nowKey); return `
     <button class="wcard" data-act="wallet" data-w="${w.id}" aria-label="${esc(w.name)}の財布の詳細">
       <span class="wdot" style="background:${wColor(w.id)}"></span>
@@ -137,6 +139,24 @@ function home() {
     <div><h3 class="sh">財布の間の移動（支出にも収入にも数えない）</h3><div class="panel">${
       Object.keys(t.mv).length ? Object.entries(t.mv).map(([k, v]) => `<button class="row drill" data-act="drill" data-mv="${esc(k)}"><div class="lab"><span>${esc(moveLabel(k))}</span></div><div class="prev num">先月 ${p.mv[k] ? yen(p.mv[k]) : '—'}</div><div class="amt num">${yen(v)}</div></button>`).join('') : '<div class="empty">この月はまだありません</div>'}</div></div>
   </section>`;
+}
+
+// 内訳の棒：予算があれば 使った÷予算（8割で黄・超えたら赤）、無ければ一番大きい分類との比べ
+function budgetBar(b, rel, c) {
+  if (!b) return `<div class="bar"><i style="width:${rel * 100}%;background:${wColor(c.wallet)}"></i></div>`;
+  const lv = budgetLevel(b.ratio);
+  return `<div class="bar bud ${lv}"><i style="width:${Math.min(1, b.ratio) * 100}%"></i></div>`;
+}
+
+// ホームの一番上のお知らせ。あるときだけ。× で消すと、状態が悪くなるまで出ない（消したことはこの iPhone だけに覚える）
+function noticeList() {
+  const list = notices(S, today()).map(n => n.kind === 'budget'
+    ? { ...n, text: n.level === 'over' ? `${C(n.cat).name}が予算を ${yen(n.used - n.budget)}円 超えました` : `${C(n.cat).name} 予算の${Math.floor(n.ratio * 100)}%・残り ${yen(n.budget - n.used)}円`, act: `data-act="drill" data-now="1" data-dc="${esc(n.cat)}"` }
+    : { ...n, text: `${N(n.debtor)} → ${N(n.creditor)} ${yen(n.amount)}円 ${n.days < 0 ? `返す期限を${-n.days}日過ぎています` : n.days === 0 ? '今日が返す期限' : `返す期限まであと${n.days}日`}`, act: `data-act="loan" data-d="${esc(n.debtor)}" data-c="${esc(n.creditor)}"` });
+  if (M.id && (!M.lastOk || Date.now() - M.lastOk > 2 * 86400e3)) list.push({ id: 'backup', level: 'over', text: 'バックアップが2日以上送れていません（押すと今すぐ送る）', act: 'data-act="bknow"' });
+  const shown = list.filter(n => n.id === 'backup' || !(M.dismissed || []).includes(n.id));
+  if (!shown.length) return '';
+  return `<div class="notices">${shown.map(n => `<div class="notice ${n.level}"><button class="ntext" ${n.act}>${esc(n.text)}</button>${n.id === 'backup' ? '' : `<button class="nx" data-act="dismiss" data-nid="${esc(n.id)}" aria-label="このお知らせを消す">×</button>`}</div>`).join('')}</div>`;
 }
 
 function loanBlock(all) {
@@ -189,6 +209,8 @@ function settings() {
       ${c.hidden ? `<button class="x back" data-act="cshow" data-i="${i}" aria-label="${esc(c.name)}を戻す">戻す</button>`
                  : `<button class="x" data-act="cdel" data-i="${i}" aria-label="${esc(c.name)}を${used[c.id] ? '隠す' : '消す'}">×</button>`}</div>`).join('')}
     <button class="add" data-act="cadd">＋ 分類を足す</button></div>
+  <div class="set"><h3>予算（月）</h3><p>決めたい分類にだけ金額を入れる（空なら予算なし）。8割で黄・超えたら赤</p>
+    <div class="bgrid">${S.cats.map((c, i) => c.kind === 'out' && !c.hidden ? `<label class="brow"><span>${esc(c.name)}</span><input id="cb${i}" class="num" inputmode="numeric" value="${c.budget || ''}" placeholder="なし" data-set="cbudget" data-i="${i}" aria-label="${esc(c.name)}の予算"></label>` : '').join('')}</div></div>
   <div class="set"><h3>固定費（毎月その日に自動で記録）</h3>
     <p>登録の翌日以降、毎月その日に自動で記録。行き先で移動・返済も選べる（返済は返し終わると止まる）</p>
     ${S.fixed.length ? '' : '<div class="empty">まだありません</div>'}
@@ -322,7 +344,8 @@ function drawLoan() {
     ${sheetHead(esc(N(d)) + ' → ' + esc(N(c)))}
     <div class="amount num">${n > 0 ? yen(n) : '0'}<small>円</small></div>
     <p class="hint">${esc(n > 0 ? owesText(d, c, n) : '全部返し終わりました')}</p>
-    ${n > 0 ? `<div class="confirm plain"><div><button class="btn" data-act="repayall">全額${word}</button><button class="btn ghost" data-act="repaypart">一部${word}</button></div></div>` : ''}
+    ${n > 0 ? `<div class="confirm plain"><div><button class="btn" data-act="repayall">全額${word}</button><button class="btn ghost" data-act="repaypart">一部${word}</button></div></div>
+    <label class="meta">返す期限<input type="date" id="ldue" value="${esc((S.loanDue || {})[pairKey(d, c)] || '')}" data-set="ldue" aria-label="返す期限"><span class="hint">（なくてよい。7日前からお知らせ）</span></label>` : ''}
     <h3 class="sh">これまで（押すと直せます）</h3>
     <div>${recs.map(r => { const back = r.wallet === d; return `<button class="hitem" data-act="edit" data-id="${r.id}">
       <span>${back ? (isPerson(d) ? '返してもらった' : '返した') : (isPerson(d) ? '貸した' : '借りた')}　${esc(N(r.wallet))} → ${esc(N(r.to))}</span>
@@ -405,7 +428,12 @@ async function commit(rec) {
     lastSaved = null; toast('直しました');
   } else {
     rec.id = uid(); rec.t = Date.now(); S.recs.push(rec); lastSaved = rec.id;
-    toast(`${recLabel(rec)} ${yen(rec.amount)}円を保存しました`, true);
+    let bmsg = '';
+    if (rec.kind === 'out' && C(rec.cat).budget > 0 && monthOf(rec.date) === monthOf(today())) {
+      const b = budgetStatus(S, monthOf(rec.date)).find(x => x.cat === rec.cat);
+      bmsg = b.used > b.budget ? `・予算を ${yen(b.used - b.budget)}円 超えました` : `・予算の残り ${yen(b.budget - b.used)}円`;
+    }
+    toast(`${recLabel(rec)} ${yen(rec.amount)}円を保存しました${bmsg}`, true);
   }
   F = null; drawSheet(); render(); await save();
 }
@@ -546,7 +574,7 @@ document.addEventListener('click', async e => {
     case 'close': F = null; return drawSheet();
     case 'edit': return openEntry(S.recs.find(x => x.id === d.id));
     case 'wallet': return openWallet(d.w);
-    case 'drill': return openDrill(d.dc, d.mv);
+    case 'drill': if (d.now) { V.month = monthOf(today()); V.wf = 'all'; } return openDrill(d.dc, d.mv);
     case 'drillkind': return openDrill(null, null, d.k);
     case 'wmore': F.more = true; return drawSheet();
     case 'adjust': return openAdjust(d.w);
@@ -585,6 +613,7 @@ document.addEventListener('click', async e => {
     case 'fadd': S.fixed.push({ id: uid(), name: '', amount: 0, day: new Date().getDate(), wallet: 'me', cat: 'fix', from: today(), done: [] }); render(); return save();
     case 'fdel': S.fixed.splice(Number(d.i), 1); render(); return save();
     case 'bknow': M.lastError = ''; paintBackup(); return runBackup();
+    case 'dismiss': M.dismissed = [...(M.dismissed || []).filter(x => notices(S, today()).some(n => n.id === x)), d.nid]; await saveMeta(); return render();
     case 'restorepick': return openPick();
     case 'pickday': F.chosen = d.date; return drawSheet();
     case 'picknot': F.chosen = null; return drawSheet();
@@ -617,6 +646,8 @@ document.addEventListener('change', e => {
     case 'cname': S.cats[i].name = v || S.cats[i].name; break;
     case 'cwallet': S.cats[i].wallet = v; break;
     case 'ckind': S.cats[i].kind = v; break;
+    case 'cbudget': if (n > 0) S.cats[i].budget = n; else delete S.cats[i].budget; el.value = n > 0 ? n : ''; break;
+    case 'ldue': S.loanDue = S.loanDue || {}; if (v) S.loanDue[pairKey(F.d, F.c)] = v; else delete S.loanDue[pairKey(F.d, F.c)]; break;
     case 'fname': f.name = v; break;
     case 'famt': f.amount = n; break;
     case 'fday': f.day = Math.min(31, Math.max(1, n || 1)); el.value = f.day; break;
