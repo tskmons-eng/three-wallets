@@ -3,7 +3,7 @@ import * as store from './store.js';
 import * as bk from './backup.js';
 import * as L from './labels.js';
 
-export const VERSION = '1.4.0';
+export const VERSION = '1.5.0';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -108,9 +108,9 @@ function home() {
     if (!ks.length) return `<div class="empty">この月はまだありません</div>`;
     return ks.map(k => { const c = C(k); return `<button class="row drill" data-act="drill" data-dc="${esc(k)}">
       <div class="lab"><span class="tag" style="background:${wColor(c.wallet)}">${esc(W(c.wallet).name)}</span><span>${esc(c.name)}</span></div>
+      <div class="prev num">先月 ${prev[k] ? yen(prev[k]) : '—'}</div>
       <div class="amt num ${kind}">${yen(obj[k])}</div>
-      ${kind === 'o' ? `<div class="bar"><i style="width:${obj[k] / maxOut * 100}%;background:${wColor(c.wallet)}"></i></div>` : ''}
-      <div class="prev">先月 ${prev[k] ? yen(prev[k]) + '円' : 'なし'}</div></button>`; }).join('');
+      ${kind === 'o' ? `<div class="bar"><i style="width:${obj[k] / maxOut * 100}%;background:${wColor(c.wallet)}"></i></div>` : ''}</button>`; }).join('');
   };
   const nowKey = monthOf(today());
   return `
@@ -128,14 +128,14 @@ function home() {
       <div class="mnav"><button data-act="mprev" aria-label="前の月">‹</button><span>${monthLabel(key)}</span><button data-act="mnext" aria-label="次の月" ${key >= nowKey ? 'disabled' : ''}>›</button></div></div>
     <div class="chips">${[['all', '全部'], ...S.wallets.map(w => [w.id, w.name])].map(([id, n]) => `<button class="chip" data-wf="${id}" aria-pressed="${V.wf === id}">${esc(n)}</button>`).join('')}</div>
     <div class="sum3">
-      <div><small>入った</small><span class="num i">${yen(t.tin)}</span></div>
-      <div><small>出た</small><span class="num o">${yen(t.tout)}</span></div>
-      <div><small>差し引き</small><span class="num">${t.tin - t.tout >= 0 ? '+' : ''}${yen(t.tin - t.tout)}</span></div>
+      <button data-act="drillkind" data-k="in"><small>入った</small><span class="num i">${yen(t.tin)}</span></button>
+      <button data-act="drillkind" data-k="out"><small>出た</small><span class="num o">${yen(t.tout)}</span></button>
+      <button data-act="drillkind" data-k="both"><small>差し引き</small><span class="num">${t.tin - t.tout >= 0 ? '+' : ''}${yen(t.tin - t.tout)}</span></button>
     </div>
     <div><h3 class="sh">出たお金（押すと中身）</h3><div class="panel">${rows(t.out, p.out, 'o')}</div></div>
     <div><h3 class="sh">入ったお金</h3><div class="panel">${rows(t.inn, p.inn, 'i')}</div></div>
     <div><h3 class="sh">財布の間の移動（支出にも収入にも数えない）</h3><div class="panel">${
-      Object.keys(t.mv).length ? Object.entries(t.mv).map(([k, v]) => `<button class="row drill" data-act="drill" data-mv="${esc(k)}"><div class="lab"><span>${esc(moveLabel(k))}</span></div><div class="amt num">${yen(v)}</div><div class="prev">先月 ${p.mv[k] ? yen(p.mv[k]) + '円' : 'なし'}</div></button>`).join('') : '<div class="empty">この月はまだありません</div>'}</div></div>
+      Object.keys(t.mv).length ? Object.entries(t.mv).map(([k, v]) => `<button class="row drill" data-act="drill" data-mv="${esc(k)}"><div class="lab"><span>${esc(moveLabel(k))}</span></div><div class="prev num">先月 ${p.mv[k] ? yen(p.mv[k]) : '—'}</div><div class="amt num">${yen(v)}</div></button>`).join('') : '<div class="empty">この月はまだありません</div>'}</div></div>
   </section>`;
 }
 
@@ -146,8 +146,7 @@ function loanBlock(all) {
   return `${nw !== all ? `<div class="total"><span>人との貸し借りを含めると</span><b class="num">${yen(nw)} 円</b></div>` : ''}
   <section><h3 class="sh">貸し借りの残り（押すと中身と「返す」）</h3><div class="panel">${pos.map(p => `
     <button class="row loanrow" data-act="loan" data-d="${esc(p.debtor)}" data-c="${esc(p.creditor)}">
-      <div class="lab"><span>${esc(N(p.debtor))} → ${esc(N(p.creditor))}へ返す</span></div><div class="amt num">${yen(p.amount)}</div>
-      <div class="prev">${esc(owesText(p.debtor, p.creditor, p.amount))}</div></button>`).join('')}</div></section>`;
+      <div class="lab"><span>${esc(N(p.debtor))} → ${esc(N(p.creditor))}へ返す</span></div><div class="prev"></div><div class="amt num">${yen(p.amount)}</div></button>`).join('')}</div></section>`;
 }
 
 function hist() {
@@ -179,20 +178,19 @@ function settings() {
     return `<select id="fk${i}" data-set="fdest" data-i="${i}" aria-label="分類">${opts.map(([v, n]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
   };
   return `<div class="top"><h1>設定</h1></div>
-  <div class="set"><h3>財布</h3><p>名前と、使い始めた日の残高。今の残高がずれたら、ホームで財布を押して合わせます。</p>
+  <div class="set"><h3>財布</h3><p>名前と使い始めた日の残高。ずれたらホームで財布を押して合わせる</p>
     ${S.wallets.map((w, i) => `<div class="frow w"><span class="wdot sm" style="background:${wColor(w.id)}"></span>
       <input id="wn${i}" value="${esc(w.name)}" data-set="wname" data-i="${i}" aria-label="財布の名前">
       <input id="wi${i}" class="num" inputmode="numeric" value="${w.init}" data-set="winit" data-i="${i}" aria-label="使い始めた日の残高"></div>`).join('')}</div>
-  <div class="set"><h3>分類</h3><p>入力のときに大きなボタンで出ます（よく使う順）。財布は「この分類でよく使う財布」で、押したときに自動で選ばれます。</p>
+  <div class="set"><h3>分類</h3><p>財布＝押したとき自動で選ぶ財布。使った分類は×で隠れるだけ（合計は崩れない）</p>
     ${S.cats.map((c, i) => `<div class="frow c ${c.hidden ? 'hid' : ''}"><input id="cn${i}" value="${esc(c.name)}" data-set="cname" data-i="${i}" aria-label="分類の名前">
       ${wSel(c.wallet, `id="cw${i}" data-set="cwallet" data-i="${i}" aria-label="財布"`)}
       <select id="ck${i}" data-set="ckind" data-i="${i}" aria-label="支出か収入か"><option value="out" ${c.kind === 'out' ? 'selected' : ''}>支出</option><option value="in" ${c.kind === 'in' ? 'selected' : ''}>収入</option></select>
       ${c.hidden ? `<button class="x back" data-act="cshow" data-i="${i}" aria-label="${esc(c.name)}を戻す">戻す</button>`
                  : `<button class="x" data-act="cdel" data-i="${i}" aria-label="${esc(c.name)}を${used[c.id] ? '隠す' : '消す'}">×</button>`}</div>`).join('')}
-    <p>記録に使った分類は、消さずにボタンから隠します（前の月の合計が崩れないように）。</p>
     <button class="add" data-act="cadd">＋ 分類を足す</button></div>
   <div class="set"><h3>固定費（毎月その日に自動で記録）</h3>
-    <p>登録した日の翌日以降の分から自動で入ります。今日までに払った分は＋から入れてください。つみたてのように財布の間で動かすものは「〜の財布へ移動」、毎月の返済は「貸し借り：〜へ返す」を選びます（残りより多くは返さず、返し終わったら止まります）。</p>
+    <p>登録の翌日以降、毎月その日に自動で記録。行き先で移動・返済も選べる（返済は返し終わると止まる）</p>
     ${S.fixed.length ? '' : '<div class="empty">まだありません</div>'}
     ${S.fixed.map((f, i) => `<div class="fcard">
       <div class="frow f1"><input id="fn${i}" value="${esc(f.name)}" placeholder="名前（家賃など）" data-set="fname" data-i="${i}" aria-label="名前">
@@ -203,12 +201,12 @@ function settings() {
         ${destSel(f, i)}</div></div>`).join('')}
     <button class="add" data-act="fadd">＋ 固定費を足す</button></div>
   <div class="set"><h3>バックアップ</h3>
-    <p>記録するたび・開くたびに、自社サーバーへ自動で送ります。送る前にこのiPhoneの中で合言葉を使って暗号化するので、サーバーには読めない中身だけが置かれます。毎日1つずつ、30日分残ります。</p>
+    <p>記録のたびに暗号化して自社サーバーへ自動で送る。30日分残る</p>
     <div>${backupLine()}</div><p class="err" id="bkerr">${esc(M.lastError || '')}</p>
     <button class="btn ghost" data-act="bknow">今すぐ送る</button>
     <button class="btn ghost" data-act="restorepick">前の日のバックアップに戻す</button>
-    <p>新しいiPhoneでは、アプリを開いた最初の画面で「前のiPhoneから引き継ぐ」を選び、合言葉を入れます。<b>合言葉を忘れると戻せません。</b></p>
-    <p>PCでは https://tskmons-eng.github.io/three-wallets/pc.html を開いて合言葉を入れると、見るだけの画面が出ます（PCには何も残りません）。</p></div>
+    <p>新しいiPhone：最初の画面で「前のiPhoneから引き継ぐ」→ 合言葉。<b>忘れると戻せない</b></p>
+    <p>PCで見る：tskmons-eng.github.io/three-wallets/pc.html → 合言葉</p></div>
   <p class="ver">3つの財布 ${VERSION}・データはこのiPhoneの中にあります</p>`;
 }
 
@@ -444,22 +442,27 @@ function drawWallet() {
 }
 
 // 内訳の詳細：その月のその分類（または移動）の記録。押すと直せる
-function openDrill(cat, mv) { F = { kind: 'drill', cat, mv, month: V.month, wf: V.wf }; drawSheet(); }
+// k：'in'（収入すべて）・'out'（支出すべて）・'both'（両方。合計は差し引き）
+function openDrill(cat, mv, k) { F = { kind: 'drill', cat, mv, k, month: V.month, wf: V.wf }; drawSheet(); }
 function drawDrill() {
-  const { cat, mv, month, wf } = F;
+  const { cat, mv, k, month, wf } = F;
   const inW = r => wf === 'all' || r.wallet === wf || r.to === wf;
-  const list = S.recs.filter(r => monthOf(r.date) === month && inW(r) && (mv ? r.kind === 'move' && r.wallet + '>' + r.to === mv : (r.kind === 'out' || r.kind === 'in') && r.cat === cat))
+  const hit = r => mv ? r.kind === 'move' && r.wallet + '>' + r.to === mv
+    : k ? (r.kind === 'in' && k !== 'out') || (r.kind === 'out' && k !== 'in')
+    : (r.kind === 'out' || r.kind === 'in') && r.cat === cat;
+  const list = S.recs.filter(r => monthOf(r.date) === month && inW(r) && hit(r))
     .sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0));
-  const sum = list.reduce((a, r) => a + r.amount, 0);
-  const title = (mv ? moveLabel(mv) : C(cat).name) + '・' + monthLabel(month) + (wf === 'all' ? '' : '・' + W(wf).name);
+  const sum = list.reduce((a, r) => a + (k === 'both' && r.kind === 'out' ? -r.amount : r.amount), 0);
+  const name = mv ? moveLabel(mv) : k ? { in: '入ったお金', out: '出たお金', both: '入った・出た' }[k] : C(cat).name;
+  const title = name + '・' + monthLabel(month) + (wf === 'all' ? '' : '・' + W(wf).name);
   layer.html = `<div class="scrim" data-act="close"></div>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="内訳の中身"><div class="in">
     ${sheetHead(esc(title))}
-    <div class="amount num">${yen(sum)}<small>円・${list.length}件</small></div>
-    <div>${list.map(r => `<button class="hitem" data-act="edit" data-id="${r.id}">
-      <span>${esc(r.memo || recLabel(r))} ${r.kind === 'in' || r.kind === 'out' ? `<span class="tag" style="background:${wColor(r.wallet)}">${esc(W(r.wallet).name)}</span>` : ''}</span>
-      <span class="num ${r.kind === 'in' ? 'i' : r.kind === 'out' ? 'o' : ''}">${yen(r.amount)}</span>
-      <span class="m">${esc(r.date)}${r.fixedId ? '・固定費（自動）' : ''}</span></button>`).join('') || '<div class="empty">ありません</div>'}</div>
+    <div class="amount num">${k === 'both' && sum > 0 ? '+' : ''}${yen(sum)}<small>円・${list.length}件</small></div>
+    <div class="list">${list.map(r => `<button class="hitem" data-act="edit" data-id="${r.id}">
+      <span>${esc(recLabel(r))}${r.memo ? `<span class="m">・${esc(r.memo)}</span>` : ''} ${r.kind === 'in' || r.kind === 'out' ? `<span class="tag" style="background:${wColor(r.wallet)}">${esc(W(r.wallet).name)}</span>` : ''}</span>
+      <span class="num ${r.kind === 'in' ? 'i' : r.kind === 'out' ? 'o' : ''}">${r.kind === 'out' && k === 'both' ? '−' : ''}${yen(r.amount)}</span>
+      <span class="m">${esc(r.date.slice(5).replace('-', '/'))}${r.fixedId ? '・自動' : ''}</span></button>`).join('') || '<div class="empty">ありません</div>'}</div>
   </div></div>`;
 }
 
@@ -470,12 +473,11 @@ function drawAdjust() {
   layer.html = `<div class="scrim" data-act="close"></div>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="残高を合わせる"><div class="in">
     ${sheetHead(esc(W(F.wallet).name) + 'の残高を合わせる')}
-    <p class="hint">通帳やアプリで見た、今の本当の残高を打ちます。差の分を「残高合わせ」として1件だけ記録します（支出にも収入にも数えません）。</p>
-    <div class="total"><span>アプリの残高</span><b class="num">${yen(now)} 円</b></div>
     <div class="amount num">${amt === null ? '<span class="ph">本当の残高</span>' : yen(amt)}<small>円</small></div>
-    <div class="total"><span>差</span><b class="num ${diff < 0 ? 'o' : 'i'}">${diff >= 0 ? '+' : ''}${yen(diff)} 円</b></div>
+    <div class="total"><span>アプリ <b class="num">${yen(now)}</b></span><span>差 <b class="num ${diff < 0 ? 'o' : 'i'}">${diff >= 0 ? '+' : ''}${yen(diff)}</b></span></div>
     ${keys()}
     <button class="btn" data-act="saveadj" ${amt === null || diff === 0 ? 'disabled' : ''}>この残高に合わせる</button>
+    <p class="hint">差は「残高合わせ」として1件記録（支出・収入には数えない）</p>
     ${delBlock('この残高合わせ')}
   </div></div>`;
 }
@@ -545,6 +547,7 @@ document.addEventListener('click', async e => {
     case 'edit': return openEntry(S.recs.find(x => x.id === d.id));
     case 'wallet': return openWallet(d.w);
     case 'drill': return openDrill(d.dc, d.mv);
+    case 'drillkind': return openDrill(null, null, d.k);
     case 'wmore': F.more = true; return drawSheet();
     case 'adjust': return openAdjust(d.w);
     case 'saveloan': {
