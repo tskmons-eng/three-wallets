@@ -3,6 +3,7 @@
 import { yen, monthOf, shiftMonth, ymd, balance, totals, loanPositions, netWorth, effect } from './calc.js';
 import * as bk from './backup.js';
 import * as L from './labels.js';
+import { toCsv } from './csv.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -35,6 +36,24 @@ login();
   });
 }
 
+// 記録の一覧（画面の表と CSV で同じ絞り込みを使う）
+function filtered() {
+  const q = V.hq.trim();
+  return S.recs.filter(r => (V.hw === 'all' || r.wallet === V.hw || r.to === V.hw) && (!V.hc || r.cat === V.hc)
+    && (!q || (r.memo || '').includes(q) || L.recLabel(S, r).includes(q)))
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0));
+}
+function downloadCsv() {
+  const list = filtered().slice().reverse();   // CSV は古い順
+  const blob = new Blob([toCsv(S, list)], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  const d = new Date();
+  a.href = URL.createObjectURL(blob);
+  a.download = `3つの財布_${ymd(d)}${V.hw !== 'all' || V.hc || V.hq ? '_絞り込み' : ''}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
 function render() {
   const W = id => L.walletOf(S, id), C = id => L.catOf(S, id);
   const all = S.wallets.reduce((a, w) => a + balance(S, w.id), 0), nw = netWorth(S);
@@ -61,11 +80,7 @@ function render() {
   const topCats = Object.keys(catSum).sort((a, b) => catSum[b] - catSum[a]).slice(0, 10);
   const short = m => Number(m.slice(5)) + '月';
 
-  // 記録の一覧
-  const q = V.hq.trim();
-  const list = S.recs.filter(r => (V.hw === 'all' || r.wallet === V.hw || r.to === V.hw) && (!V.hc || r.cat === V.hc)
-    && (!q || (r.memo || '').includes(q) || L.recLabel(S, r).includes(q)))
-    .sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0));
+  const list = filtered();
   const amtCell = r => {
     if (V.hw !== 'all') { const e = effect(r, V.hw); return `<td class="r num ${e > 0 ? 'i' : e < 0 ? 'o' : ''}">${e > 0 ? '+' : e < 0 ? '−' : ''}${yen(Math.abs(e))}</td>`; }
     const s = r.kind === 'in' ? '+' : r.kind === 'out' ? '−' : r.kind === 'adj' && r.amount >= 0 ? '+' : '';
@@ -110,7 +125,8 @@ function render() {
     <select id="hw" aria-label="財布">${[['all', '全部の財布'], ...S.wallets.map(w => [w.id, w.name])].map(([id, n]) => `<option value="${id}" ${V.hw === id ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
     <select id="hc" aria-label="分類"><option value="">全部の分類</option>${S.cats.map(c => `<option value="${c.id}" ${V.hc === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
     <input id="hq" type="search" placeholder="メモや分類で探す" value="${esc(V.hq)}">
-    <span class="muted">${list.length}件${list.length > 500 ? '（新しい500件を表示）' : ''}</span></div>
+    <span class="muted">${list.length}件${list.length > 500 ? '（新しい500件を表示）' : ''}</span>
+    <button class="btn ghost small" id="csv" ${list.length ? '' : 'disabled'}>この${list.length}件をCSVで書き出す</button></div>
     <div class="scroll"><table><thead><tr><th>日付</th><th>種類</th><th>内容</th><th>財布</th><th>メモ</th><th class="r">金額</th></tr></thead><tbody>
     ${list.slice(0, 500).map(r => `<tr><td class="num">${esc(r.date)}</td><td>${kindName[r.kind] || ''}</td><td>${esc(L.recLabel(S, r))}</td>
       <td>${r.kind === 'in' || r.kind === 'out' || r.kind === 'adj' ? esc(W(r.wallet).name) : ''}</td><td class="muted">${esc(r.memo)}${r.fixedId ? '（自動）' : ''}</td>${amtCell(r)}</tr>`).join('')}
@@ -123,6 +139,7 @@ document.addEventListener('click', e => {
   if (b.dataset.m) { V.month = shiftMonth(V.month, Number(b.dataset.m)); render(); }
   else if (b.dataset.wf) { V.wf = b.dataset.wf; render(); }
   else if (b.id === 'reload') { S = null; login(); }
+  else if (b.id === 'csv') downloadCsv();
 });
 document.addEventListener('change', e => {
   if (!S) return;

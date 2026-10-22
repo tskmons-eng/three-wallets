@@ -3,7 +3,7 @@ import * as store from './store.js';
 import * as bk from './backup.js';
 import * as L from './labels.js';
 
-export const VERSION = '1.5.0';
+export const VERSION = '1.6.0';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
