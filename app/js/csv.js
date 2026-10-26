@@ -1,5 +1,6 @@
 // 記録を CSV にする（PC の画面で書き出す用）。Excel でそのまま開けるように、先頭に BOM、改行は CRLF。
-import { catOf, partyName } from './labels.js';
+import { catOf, partyName, groupName } from './labels.js';
+import { linkGroups } from './calc.js';
 
 const KIND = { in: '収入', out: '支出', move: '移動', loan: '貸し借り', adj: '残高合わせ' };
 
@@ -11,11 +12,12 @@ function cell(v) {
 }
 
 export function toCsv(S, recs) {
-  const head = ['日付', '種類', '分類', 'から', 'へ', '金額', 'メモ', '自動'];
+  const head = ['日付', '種類', '分類', 'から', 'へ', '金額', 'メモ', '自動', '紐づけ'];
+  const names = Object.fromEntries(linkGroups(S).map(g => [g.id, groupName(S, g)]));
   const rows = recs.map(r => {
     const from = r.kind === 'in' ? '' : partyName(S, r.wallet);
     const to = r.kind === 'in' ? partyName(S, r.wallet) : r.kind === 'move' || r.kind === 'loan' ? partyName(S, r.to) : '';
-    return [r.date, KIND[r.kind] || r.kind, r.kind === 'in' || r.kind === 'out' ? catOf(S, r.cat).name : '', from, to, r.amount, r.memo || '', r.fixedId ? '固定費' : ''];
+    return [r.date, KIND[r.kind] || r.kind, r.kind === 'in' || r.kind === 'out' ? catOf(S, r.cat).name : '', from, to, r.amount, r.memo || '', r.fixedId ? '固定費' : '', names[r.link] || ''];
   });
   return '﻿' + [head, ...rows].map(row => row.map(cell).join(',')).join('\r\n') + '\r\n';
 }

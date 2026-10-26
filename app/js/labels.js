@@ -31,3 +31,8 @@ export function moveLabel(S, k) {
 }
 export const monthLabel = key => { const [y, m] = key.split('-'); return `${y}年${Number(m)}月`; };
 export const wColor = id => `var(--w-${['co', 'me', 'inv'].includes(id) ? id : 'me'})`;
+
+// まとまりの名前：決めた名前 → 始まりの記録のメモ → 始まりの記録の呼び方
+export function groupName(S, g) {
+  return g.name || (g.first.memo ? g.first.memo : recLabel(S, g.first));
+}

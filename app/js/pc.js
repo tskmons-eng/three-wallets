@@ -1,6 +1,6 @@
 // PC で見るだけの画面。合言葉でサーバーの最新のバックアップを取ってきて、この画面の中だけで開く。
 // 送らない・直さない・保存しない（閉じれば何も残らない）。計算は calc.js、呼び方は labels.js を iPhone と共通で使う。
-import { yen, monthOf, shiftMonth, ymd, balance, totals, loanPositions, netWorth, effect } from './calc.js';
+import { yen, monthOf, shiftMonth, ymd, balance, totals, loanPositions, netWorth, effect, linkGroups } from './calc.js';
 import * as bk from './backup.js';
 import * as L from './labels.js';
 import { toCsv } from './csv.js';
@@ -81,6 +81,7 @@ function render() {
   const short = m => Number(m.slice(5)) + '月';
 
   const list = filtered();
+  const groups = linkGroups(S), gnames = Object.fromEntries(groups.map(g => [g.id, L.groupName(S, g)]));
   const amtCell = r => {
     if (V.hw !== 'all') { const e = effect(r, V.hw); return `<td class="r num ${e > 0 ? 'i' : e < 0 ? 'o' : ''}">${e > 0 ? '+' : e < 0 ? '−' : ''}${yen(Math.abs(e))}</td>`; }
     const s = r.kind === 'in' ? '+' : r.kind === 'out' ? '−' : r.kind === 'adj' && r.amount >= 0 ? '+' : '';
@@ -100,6 +101,7 @@ function render() {
 
   ${pos.length ? `<section><h2>貸し借りの残り</h2><table><tbody>${pos.map(x => `<tr><td>${esc(L.partyName(S, x.debtor))} → ${esc(L.partyName(S, x.creditor))}へ返す</td><td class="muted">${esc(L.owesText(S, x.debtor, x.creditor, x.amount))}</td><td class="r num">${yen(x.amount)}</td></tr>`).join('')}</tbody></table></section>` : ''}
 
+  ${groups.length ? `<section><h2>紐づいたお金</h2><table><thead><tr><th>まとまり</th><th class="r">件数</th><th class="r">出た</th><th class="r">入った</th><th class="r">差し引き</th><th>最後</th><th></th></tr></thead><tbody>${groups.map(g => `<tr><td>${esc(gnames[g.id])}</td><td class="r num">${g.recs.length}</td><td class="r num o">${yen(g.out)}</td><td class="r num i">${yen(g.in)}</td><td class="r num">${g.net > 0 ? '+' : ''}${yen(g.net)}</td><td class="num muted">${esc(g.last)}</td><td class="muted">${g.done ? '終わった' : ''}</td></tr>`).join('')}</tbody></table></section>` : ''}
   <section>
     <div class="bar"><h2>内訳</h2>
       <div class="mnav"><button data-m="-1" aria-label="前の月">‹</button><span>${L.monthLabel(key)}</span><button data-m="1" aria-label="次の月">›</button></div>
@@ -127,9 +129,9 @@ function render() {
     <input id="hq" type="search" placeholder="メモや分類で探す" value="${esc(V.hq)}">
     <span class="muted">${list.length}件${list.length > 500 ? '（新しい500件を表示）' : ''}</span>
     <button class="btn ghost small" id="csv" ${list.length ? '' : 'disabled'}>この${list.length}件をCSVで書き出す</button></div>
-    <div class="scroll"><table><thead><tr><th>日付</th><th>種類</th><th>内容</th><th>財布</th><th>メモ</th><th class="r">金額</th></tr></thead><tbody>
+    <div class="scroll"><table><thead><tr><th>日付</th><th>種類</th><th>内容</th><th>財布</th><th>メモ</th><th>紐づけ</th><th class="r">金額</th></tr></thead><tbody>
     ${list.slice(0, 500).map(r => `<tr><td class="num">${esc(r.date)}</td><td>${kindName[r.kind] || ''}</td><td>${esc(L.recLabel(S, r))}</td>
-      <td>${r.kind === 'in' || r.kind === 'out' || r.kind === 'adj' ? esc(W(r.wallet).name) : ''}</td><td class="muted">${esc(r.memo)}${r.fixedId ? '（自動）' : ''}</td>${amtCell(r)}</tr>`).join('')}
+      <td>${r.kind === 'in' || r.kind === 'out' || r.kind === 'adj' ? esc(W(r.wallet).name) : ''}</td><td class="muted">${esc(r.memo)}${r.fixedId ? '（自動）' : ''}</td><td class="muted">${esc(gnames[r.link] || '')}</td>${amtCell(r)}</tr>`).join('')}
     </tbody></table></div></section>
   </div>`;
 }

@@ -1,9 +1,9 @@
-import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName, budgetStatus, budgetLevel, notices, pairKey } from './calc.js';
+import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName, budgetStatus, budgetLevel, notices, pairKey, linkGroups, linkTo, tidyLinks, linkable } from './calc.js';
 import * as store from './store.js';
 import * as bk from './backup.js';
 import * as L from './labels.js';
 
-export const VERSION = '1.7.0';
+export const VERSION = '1.8.0';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -125,6 +125,7 @@ function home() {
     </button>`; }).join('')}</div>
   <div class="total"><span>3つの合計</span><b class="num">${yen(all)} 円</b></div>
   ${loanBlock(all)}
+  ${groupBlock()}
   <section class="month">
     <div class="mhead"><h2>内訳</h2>
       <div class="mnav"><button data-act="mprev" aria-label="前の月">‹</button><span>${monthLabel(key)}</span><button data-act="mnext" aria-label="次の月" ${key >= nowKey ? 'disabled' : ''}>›</button></div></div>
@@ -157,6 +158,18 @@ function noticeList() {
   const shown = list.filter(n => n.id === 'backup' || !(M.dismissed || []).includes(n.id));
   if (!shown.length) return '';
   return `<div class="notices">${shown.map(n => `<div class="notice ${n.level}"><button class="ntext" ${n.act}>${esc(n.text)}</button>${n.id === 'backup' ? '' : `<button class="nx" data-act="dismiss" data-nid="${esc(n.id)}" aria-label="このお知らせを消す">×</button>`}</div>`).join('')}</div>`;
+}
+
+// 紐づいたお金：まとまりごとに 出た・入った・差し引き。終わりにしたものは出さない
+const gName = g => L.groupName(S, g);
+const signed = n => (n > 0 ? '+' : '') + yen(n);
+function groupBlock() {
+  const gs = linkGroups(S), open = gs.filter(g => !g.done), done = gs.length - open.length;
+  if (!gs.length) return '';
+  return `<section><h3 class="sh">紐づいたお金（押すと中身と「＋」）</h3>${open.length ? `<div class="panel">${open.map(g => `
+    <button class="row drill" data-act="group" data-g="${esc(g.id)}"><div class="lab"><span>${esc(gName(g))}</span></div>
+      <div class="prev num">出 ${yen(g.out)}・入 ${yen(g.in)}</div><div class="amt num ${g.net > 0 ? 'i' : g.net < 0 ? 'o' : ''}">${signed(g.net)}</div></button>`).join('')}</div>` : ''}
+    ${done ? `<button class="add" data-act="groupsdone">終わったまとまり（${done}）</button>` : ''}</section>`;
 }
 
 function loanBlock(all) {
@@ -325,11 +338,12 @@ async function applyRestore() {
 
 /* ================= シート：記録する・直す ================= */
 
-function openEntry(rec) {
+// preset：集計や紐づけから開いたときに、最初から選んでおくもの { cat, wallet, mode, linkTarget（紐づける相手の記録の id） }
+function openEntry(rec, preset = {}) {
   if (rec && rec.kind === 'adj') { F = { kind: 'adj', wallet: rec.wallet, amount: '', editId: rec.id }; return drawSheet(); }
   F = rec
     ? { mode: rec.kind, amount: String(rec.amount), wallet: rec.wallet, walletManual: rec.kind !== 'move', to: rec.to || 'inv', cat: rec.cat, date: rec.date, memo: rec.memo || '', editId: rec.id }
-    : { mode: 'out', amount: '', wallet: 'me', walletManual: false, to: 'inv', cat: null, date: today(), memo: '' };
+    : { mode: preset.mode || (preset.cat ? C(preset.cat).kind : 'out'), amount: '', wallet: preset.wallet || 'me', walletManual: !!preset.wallet, to: 'inv', cat: preset.cat || null, presetCat: preset.cat || null, date: today(), memo: '', linkTarget: preset.linkTarget || null };
   if ((F.mode === 'move' || F.mode === 'loan') && F.wallet === F.to) F.to = F.wallet === 'inv' ? 'me' : 'inv';
   drawSheet();
 }
@@ -376,6 +390,9 @@ function drawSheet() {
   if (F.kind === 'loandetail') return drawLoan();
   if (F.kind === 'wallet') return drawWallet();
   if (F.kind === 'drill') return drawDrill();
+  if (F.kind === 'group') return drawGroup();
+  if (F.kind === 'linkpick') return drawLinkPick();
+  if (F.kind === 'groupsdone') return drawDoneGroups();
   const u = usage(S);
   const cats = S.cats.filter(c => c.kind === F.mode && (!c.hidden || c.id === F.cat)).sort((a, b) => (u[b.id] || 0) - (u[a.id] || 0));
   const amt = Number(F.amount || 0);
@@ -385,8 +402,10 @@ function drawSheet() {
   <div class="sheet entry" role="dialog" aria-modal="true" aria-label="${F.editId ? '記録を直す' : '記録する'}"><div class="in">
     <div class="ehead"><button data-act="close" class="closex" aria-label="閉じる">×</button>
       <div class="seg four">${[['out', '支出'], ['in', '収入'], ['move', '移動'], ['loan', '貸し借り']].map(([m, n]) => `<button data-mode="${m}" aria-pressed="${F.mode === m}">${n}</button>`).join('')}</div></div>
+    ${linkBar()}
     <div class="amount num" aria-live="polite">${F.editId ? '<span class="etag">直す</span>' : ''}${amt ? yen(amt) : '<span class="ph">0</span>'}<small>円</small></div>
     ${keys()}
+    ${F.presetCat && !F.editId && (F.mode === 'out' || F.mode === 'in') ? `<button class="btn" data-cat="${esc(F.presetCat)}" ${amt ? '' : 'disabled'}>${esc(C(F.presetCat).name)}で保存</button>` : ''}
     ${F.mode === 'loan' ? loanForm(amt) : F.mode === 'move' ? `
       <div class="pick"><span>から</span><div class="chips">${wChips(F.wallet, 'data-from')}</div></div>
       <div class="pick"><span>へ</span><div class="chips">${wChips(F.to, 'data-to')}</div></div>
@@ -395,6 +414,7 @@ function drawSheet() {
       <div class="cats" aria-label="${amt ? '分類を押すと保存します' : '金額を打ってから分類を押します'}">${cats.map(c => `<button class="cat" data-cat="${c.id}" aria-pressed="${F.cat === c.id}" ${amt ? '' : 'disabled'}>${esc(c.name)}<small>${esc(W(F.walletManual ? F.wallet : c.wallet).name)}</small></button>`).join('')}</div>
       <div class="meta"><span>財布</span><div class="chips"><button class="chip" aria-pressed="${!F.walletManual}" data-w="">自動</button>${wChips(F.walletManual ? F.wallet : '', 'data-w')}</div></div>`}
     ${meta}
+    ${linkEdit()}
     ${delBlock('この記録')}
   </div></div>`;
 }
@@ -415,6 +435,24 @@ function loanForm(amt) {
     <p class="hint loanhint">${esc(err || hint || '借りたら「相手 → 自分の財布」、返したら「自分の財布 → 相手」')}</p>
     <button class="btn" data-act="saveloan" ${!amt || err ? 'disabled' : ''}>${err || (F.editId ? '直す' : '貸し借りを記録')}</button>`;
 }
+// 入力画面の紐づけの表示。新しく記録するとき：上に「紐づけ：〜」。直すとき：下に「紐づけ」「この件に紐づけて追加」
+function linkLabel(targetId) {
+  const t = S.recs.find(x => x.id === targetId); if (!t) return '';
+  const g = t.link && linkGroups(S).find(x => x.id === t.link);
+  return g ? `${gName(g)}（${g.recs.length}件・差し引き ${signed(g.net)}）` : `${recLabel(t)} ${yen(t.amount)}${t.memo ? '（' + t.memo + '）' : ''}`;
+}
+function linkBar() {
+  if (F.editId || !F.linkTarget) return '';
+  return `<div class="linkbar"><span>紐づけ：${esc(linkLabel(F.linkTarget))}</span><button data-act="unlinkF">外す</button></div>`;
+}
+function linkEdit() {
+  if (!F.editId || !['out', 'in', 'loan'].includes(F.mode)) return '';
+  const r = S.recs.find(x => x.id === F.editId);
+  const g = r && r.link && linkGroups(S).find(x => x.id === r.link);
+  return `<div class="linkrow">${g ? `<button class="chip" data-act="group" data-g="${esc(g.id)}">紐づけ：${esc(gName(g))}</button><button class="chip" data-act="unlink">外す</button>`
+    : `<button class="chip" data-act="linkpick">紐づける</button>`}<button class="chip strong" data-act="linkadd">＋この件に紐づけて追加</button></div>`;
+}
+
 function readMeta() {
   const pf = $('#pn-from'), pt = $('#pn-to');
   if (pf) F.newFrom = pf.value;
@@ -424,10 +462,13 @@ let lastSaved = null;
 async function commit(rec) {
   if (F.editId) {
     const i = S.recs.findIndex(x => x.id === F.editId);
-    if (i >= 0) S.recs[i] = { ...S.recs[i], ...rec };
+    if (i >= 0) { S.recs[i] = { ...S.recs[i], ...rec }; if (!linkable(S.recs[i]) && S.recs[i].link) { delete S.recs[i].link; tidyLinks(S); } }
     lastSaved = null; toast('直しました');
   } else {
-    rec.id = uid(); rec.t = Date.now(); S.recs.push(rec); lastSaved = rec.id;
+    rec.id = uid(); rec.t = Date.now();
+    const target = F.linkTarget && linkable(rec) && S.recs.find(x => x.id === F.linkTarget);
+    if (target) linkTo(S, rec, target);
+    S.recs.push(rec); lastSaved = rec.id;
     let bmsg = '';
     if (rec.kind === 'out' && C(rec.cat).budget > 0 && monthOf(rec.date) === monthOf(today())) {
       const b = budgetStatus(S, monthOf(rec.date)).find(x => x.cat === rec.cat);
@@ -436,6 +477,52 @@ async function commit(rec) {
     toast(`${recLabel(rec)} ${yen(rec.amount)}円を保存しました${bmsg}`, true);
   }
   F = null; drawSheet(); render(); await save();
+}
+
+// まとまりの中身：出た・入った・差し引き、記録の一覧、「＋この件に追加」、名前、終わりにする
+function openGroup(gid) { F = { kind: 'group', g: gid }; drawSheet(); }
+function drawGroup() {
+  const g = linkGroups(S).find(x => x.id === F.g);
+  if (!g) { F = null; return drawSheet(); }
+  layer.html = `<div class="scrim" data-act="close"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="紐づいたお金"><div class="in">
+    ${sheetHead(esc(gName(g)))}
+    <div class="sum3">
+      <div><small>出た</small><span class="num o">${yen(g.out)}</span></div>
+      <div><small>入った</small><span class="num i">${yen(g.in)}</span></div>
+      <div><small>差し引き</small><span class="num">${signed(g.net)}</span></div>
+    </div>
+    <button class="btn" data-act="groupadd">＋この件に追加</button>
+    <div class="list">${g.recs.map(r => `<button class="hitem" data-act="edit" data-id="${r.id}">
+      <span>${esc(recLabel(r))}${r.memo ? `<span class="m">・${esc(r.memo)}</span>` : ''}</span>
+      <span class="num ${r.kind === 'in' ? 'i' : r.kind === 'out' ? 'o' : ''}">${yen(r.amount)}</span>
+      <span class="m">${esc(r.date.slice(5).replace('-', '/'))}</span></button>`).join('')}</div>
+    <label class="meta">名前<input type="text" id="gname" value="${esc(g.name)}" placeholder="${esc(g.first.memo || recLabel(g.first))}" data-set="gname" aria-label="まとまりの名前"></label>
+    <button class="btn ghost" data-act="groupdone">${g.done ? 'また開く（ホームに出す）' : '終わりにする（ホームから消す）'}</button>
+  </div></div>`;
+}
+// 紐づける先を選ぶ：まとまり（進行中が先）と、最近の記録
+function openLinkPick(recId) { F = { kind: 'linkpick', recId }; drawSheet(); }
+function drawLinkPick() {
+  const me = S.recs.find(x => x.id === F.recId);
+  const gs = linkGroups(S).sort((a, b) => a.done - b.done);
+  const recent = S.recs.filter(r => r.id !== F.recId && linkable(r) && !r.link).sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0)).slice(0, 40);
+  layer.html = `<div class="scrim" data-act="close"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="紐づける先"><div class="in">
+    ${sheetHead('紐づける先を選ぶ')}
+    <p class="hint">${esc(recLabel(me))} ${yen(me.amount)} を、どれと紐づけますか</p>
+    ${gs.length ? `<h3 class="sh">まとまり</h3><div class="list">${gs.map(g => `<button class="hitem" data-act="linkset" data-g="${esc(g.id)}"><span>${esc(gName(g))}${g.done ? '<span class="m">・終わった</span>' : ''}</span><span class="num">${signed(g.net)}</span><span class="m">${g.recs.length}件・最後 ${esc(g.last.slice(5).replace('-', '/'))}</span></button>`).join('')}</div>` : ''}
+    <h3 class="sh">最近の記録</h3><div class="list">${recent.map(r => `<button class="hitem" data-act="linkset" data-id="${r.id}"><span>${esc(recLabel(r))}${r.memo ? `<span class="m">・${esc(r.memo)}</span>` : ''}</span><span class="num">${yen(r.amount)}</span><span class="m">${esc(r.date.slice(5).replace('-', '/'))}</span></button>`).join('') || '<div class="empty">ありません</div>'}</div>
+  </div></div>`;
+}
+function openDoneGroups() { F = { kind: 'groupsdone' }; drawSheet(); }
+function drawDoneGroups() {
+  const gs = linkGroups(S).filter(g => g.done);
+  layer.html = `<div class="scrim" data-act="close"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="終わったまとまり"><div class="in">
+    ${sheetHead('終わったまとまり')}
+    <div class="list">${gs.map(g => `<button class="hitem" data-act="group" data-g="${esc(g.id)}"><span>${esc(gName(g))}</span><span class="num">${signed(g.net)}</span><span class="m">出 ${yen(g.out)}・入 ${yen(g.in)}・${g.recs.length}件</span></button>`).join('') || '<div class="empty">ありません</div>'}</div>
+  </div></div>`;
 }
 
 // 財布の詳細：残高、今月の出入り、その財布の記録。残高合わせは一番下（あまり使わないので）
@@ -460,6 +547,7 @@ function drawWallet() {
       <div><small>今月 出た</small><span class="num o">${yen(tout)}</span></div>
       <div><small>移動・貸し借り</small><span class="num">${other >= 0 ? '+' : ''}${yen(other)}</span></div>
     </div>
+    <button class="btn" data-act="newwallet" data-w="${wid}">＋${esc(W(wid).name)}の財布で記録</button>
     <h3 class="sh">記録（押すと直せます）</h3>
     <div>${shown.length ? shown.map(r => { const e = effect(r, wid); return `<button class="hitem" data-act="edit" data-id="${r.id}">
       <span>${esc(recLabel(r))}</span><span class="num ${e > 0 ? 'i' : 'o'}">${e > 0 ? '+' : '−'}${yen(Math.abs(e))}</span>
@@ -473,24 +561,26 @@ function drawWallet() {
 // k：'in'（収入すべて）・'out'（支出すべて）・'both'（両方。合計は差し引き）
 function openDrill(cat, mv, k) { F = { kind: 'drill', cat, mv, k, month: V.month, wf: V.wf }; drawSheet(); }
 function drawDrill() {
-  const { cat, mv, k, month, wf } = F;
+  const { cat, mv, k, month, wf, allMonths } = F;
   const inW = r => wf === 'all' || r.wallet === wf || r.to === wf;
   const hit = r => mv ? r.kind === 'move' && r.wallet + '>' + r.to === mv
     : k ? (r.kind === 'in' && k !== 'out') || (r.kind === 'out' && k !== 'in')
     : (r.kind === 'out' || r.kind === 'in') && r.cat === cat;
-  const list = S.recs.filter(r => monthOf(r.date) === month && inW(r) && hit(r))
+  const list = S.recs.filter(r => (allMonths || monthOf(r.date) === month) && inW(r) && hit(r))
     .sort((a, b) => b.date.localeCompare(a.date) || (b.t || 0) - (a.t || 0));
   const sum = list.reduce((a, r) => a + (k === 'both' && r.kind === 'out' ? -r.amount : r.amount), 0);
   const name = mv ? moveLabel(mv) : k ? { in: '入ったお金', out: '出たお金', both: '入った・出た' }[k] : C(cat).name;
-  const title = name + '・' + monthLabel(month) + (wf === 'all' ? '' : '・' + W(wf).name);
+  const title = name + '・' + (allMonths ? 'すべての月' : monthLabel(month)) + (wf === 'all' ? '' : '・' + W(wf).name);
   layer.html = `<div class="scrim" data-act="close"></div>
   <div class="sheet" role="dialog" aria-modal="true" aria-label="内訳の中身"><div class="in">
     ${sheetHead(esc(title))}
     <div class="amount num">${k === 'both' && sum > 0 ? '+' : ''}${yen(sum)}<small>円・${list.length}件</small></div>
+    ${mv ? '' : `<button class="btn" data-act="drilladd">＋${esc(k ? (k === 'in' ? '収入' : k === 'out' ? '支出' : '') : C(cat).name)}${k === 'both' ? '' : 'で'}記録</button>`}
     <div class="list">${list.map(r => `<button class="hitem" data-act="edit" data-id="${r.id}">
       <span>${esc(recLabel(r))}${r.memo ? `<span class="m">・${esc(r.memo)}</span>` : ''} ${r.kind === 'in' || r.kind === 'out' ? `<span class="tag" style="background:${wColor(r.wallet)}">${esc(W(r.wallet).name)}</span>` : ''}</span>
       <span class="num ${r.kind === 'in' ? 'i' : r.kind === 'out' ? 'o' : ''}">${r.kind === 'out' && k === 'both' ? '−' : ''}${yen(r.amount)}</span>
-      <span class="m">${esc(r.date.slice(5).replace('-', '/'))}${r.fixedId ? '・自動' : ''}</span></button>`).join('') || '<div class="empty">ありません</div>'}</div>
+      <span class="m">${esc(allMonths ? r.date : r.date.slice(5).replace('-', '/'))}${r.fixedId ? '・自動' : ''}</span></button>`).join('') || '<div class="empty">ありません</div>'}</div>
+    ${allMonths ? '' : '<button class="btn ghost" data-act="drillall">前の月も見る</button>'}
   </div></div>`;
 }
 
@@ -574,6 +664,29 @@ document.addEventListener('click', async e => {
     case 'close': F = null; return drawSheet();
     case 'edit': return openEntry(S.recs.find(x => x.id === d.id));
     case 'wallet': return openWallet(d.w);
+    case 'newwallet': return openEntry(null, { wallet: d.w });
+    case 'drilladd': return F.k ? openEntry(null, F.k === 'both' ? {} : { mode: F.k }) : openEntry(null, { cat: F.cat });
+    case 'drillall': F.allMonths = true; return drawSheet();
+    case 'group': return openGroup(d.g);
+    case 'groupsdone': return openDoneGroups();
+    case 'groupadd': { const g = linkGroups(S).find(x => x.id === F.g); return openEntry(null, { linkTarget: g.recs[g.recs.length - 1].id }); }
+    case 'groupdone': { S.groups = S.groups || {}; const m = S.groups[F.g] = S.groups[F.g] || {}; m.done = !m.done; if (!m.done) delete m.done; if (!Object.keys(m).length) delete S.groups[F.g]; drawSheet(); render(); return save(); }
+    case 'linkadd': {
+      // 直しかけの日付・メモ・金額は、移る前に保存しておく（黙って捨てない）
+      readMeta(); const r = S.recs.find(x => x.id === F.editId);
+      const amt = Number(F.amount || 0);
+      if (amt && (amt !== r.amount || F.date !== r.date || F.memo !== (r.memo || ''))) { Object.assign(r, { amount: amt, date: F.date, memo: F.memo }); await save(); }
+      return openEntry(null, { linkTarget: r.id, mode: r.kind === 'loan' ? 'out' : r.kind });
+    }
+    case 'unlinkF': F.linkTarget = null; return drawSheet();
+    case 'unlink': { const r = S.recs.find(x => x.id === F.editId); delete r.link; tidyLinks(S); toast('紐づけを外しました'); drawSheet(); render(); return save(); }
+    case 'linkpick': return openLinkPick(F.editId);
+    case 'linkset': {
+      const r = S.recs.find(x => x.id === F.recId);
+      const target = d.g ? linkGroups(S).find(x => x.id === d.g).recs[0] : S.recs.find(x => x.id === d.id);
+      linkTo(S, r, target); tidyLinks(S); toast('紐づけました');
+      openGroup(r.link); render(); return save();
+    }
     case 'drill': if (d.now) { V.month = monthOf(today()); V.wf = 'all'; } return openDrill(d.dc, d.mv);
     case 'drillkind': return openDrill(null, null, d.k);
     case 'wmore': F.more = true; return drawSheet();
@@ -602,8 +715,8 @@ document.addEventListener('click', async e => {
     }
     case 'askdel': readMeta(); F.confirmDel = true; return drawSheet();
     case 'nodel': F.confirmDel = false; return drawSheet();
-    case 'del': S.recs = S.recs.filter(x => x.id !== F.editId); F = null; drawSheet(); render(); toast('消しました'); return save();
-    case 'undo': S.recs = S.recs.filter(x => x.id !== lastSaved); $('#toast').hidden = true; render(); return save();
+    case 'del': S.recs = S.recs.filter(x => x.id !== F.editId); tidyLinks(S); F = null; drawSheet(); render(); toast('消しました'); return save();
+    case 'undo': S.recs = S.recs.filter(x => x.id !== lastSaved); tidyLinks(S); $('#toast').hidden = true; render(); return save();
     case 'mprev': V.month = shiftMonth(V.month, -1); return render();
     case 'mnext': V.month = shiftMonth(V.month, 1); return render();
     case 'histmore': V.histMore = true; return render();
@@ -647,6 +760,7 @@ document.addEventListener('change', e => {
     case 'cwallet': S.cats[i].wallet = v; break;
     case 'ckind': S.cats[i].kind = v; break;
     case 'cbudget': if (n > 0) S.cats[i].budget = n; else delete S.cats[i].budget; el.value = n > 0 ? n : ''; break;
+    case 'gname': { S.groups = S.groups || {}; const m = S.groups[F.g] = S.groups[F.g] || {}; if (v) m.name = v; else delete m.name; if (!Object.keys(m).length) delete S.groups[F.g]; render(); break; }
     case 'ldue': S.loanDue = S.loanDue || {}; if (v) S.loanDue[pairKey(F.d, F.c)] = v; else delete S.loanDue[pairKey(F.d, F.c)]; break;
     case 'fname': f.name = v; break;
     case 'famt': f.amount = n; break;

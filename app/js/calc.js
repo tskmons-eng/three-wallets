@@ -166,6 +166,54 @@ export function notices(S, todayStr) {
   return out.sort((a, b) => (a.level === 'over' ? 0 : 1) - (b.level === 'over' ? 0 : 1));
 }
 
+// ---------- 紐づけ ----------
+// 紐づいた記録は同じ link（まとまりの印＝始まりの記録の id）を持つ。始まりの記録自身も link を持つ。
+// 始まりの記録を消しても、残りの記録の link は同じなので、まとまりは消えない。
+// 出た・入った：支出と収入。貸し借りは人との分だけ（人に貸した＝出た、人から返ってきた・借りた＝入った）。財布どうしは数えない
+export const linkable = r => r.kind === 'out' || r.kind === 'in' || r.kind === 'loan';
+function groupFlow(r) {
+  if (r.kind === 'out') return [r.amount, 0];
+  if (r.kind === 'in') return [0, r.amount];
+  if (r.kind === 'loan') {
+    if (isPerson(r.to) && !isPerson(r.wallet)) return [r.amount, 0];
+    if (isPerson(r.wallet) && !isPerson(r.to)) return [0, r.amount];
+  }
+  return [0, 0];
+}
+// まとまりの一覧。[{ id, recs（古い順）, out, in, net, first, last, done }]（最後に動いた順）
+export function linkGroups(S) {
+  const map = new Map();
+  for (const r of S.recs) {
+    if (!r.link) continue;
+    if (!map.has(r.link)) map.set(r.link, []);
+    map.get(r.link).push(r);
+  }
+  const meta = S.groups || {};
+  const out = [];
+  for (const [id, recs] of map) {
+    if (recs.length < 2) continue;   // 1件だけでは紐づけの意味が無い
+    recs.sort((a, b) => a.date.localeCompare(b.date) || (a.t || 0) - (b.t || 0));
+    let o = 0, n = 0;
+    for (const r of recs) { const [x, y] = groupFlow(r); o += x; n += y; }
+    out.push({ id, recs, out: o, in: n, net: n - o, first: recs[0], last: recs[recs.length - 1].date, done: !!(meta[id] && meta[id].done), name: (meta[id] && meta[id].name) || '' });
+  }
+  return out.sort((a, b) => b.last.localeCompare(a.last));
+}
+// 記録 r を、記録 target のまとまりに入れる（target がまだどこにも入っていなければ、target から始まるまとまりを作る）
+export function linkTo(S, r, target) {
+  const gid = target.link || target.id;
+  target.link = gid;
+  r.link = gid;
+  return gid;
+}
+// 1件だけになったまとまりは解く（外した・消したあと）
+export function tidyLinks(S) {
+  const count = {};
+  for (const r of S.recs) if (r.link) count[r.link] = (count[r.link] || 0) + 1;
+  for (const r of S.recs) if (r.link && count[r.link] < 2) delete r.link;
+  if (S.groups) for (const id of Object.keys(S.groups)) if (!count[id] || count[id] < 2) delete S.groups[id];
+}
+
 // 分類ボタンの並び：よく使う順
 export function usage(S) {
   const u = {};

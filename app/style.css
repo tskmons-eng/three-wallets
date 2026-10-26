@@ -215,3 +215,9 @@ html{touch-action:manipulation}
 .bgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px}
 .brow{display:grid;grid-template-columns:1fr 96px;align-items:center;gap:6px;font-size:13px}
 .brow input{width:100%;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:3px 6px;min-height:30px;font-size:16px;text-align:right}
+/* v1.8.0 紐づけ */
+.linkbar{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--sunk);border-radius:10px;padding:5px 10px;font-size:12px}
+.linkbar span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linkbar button{color:var(--accent);font-size:12px;white-space:nowrap}
+.linkrow{display:flex;gap:6px;flex-wrap:wrap}
+.chip.strong{border-color:var(--accent);color:var(--accent);font-weight:700}
