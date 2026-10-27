@@ -3,7 +3,7 @@ import * as store from './store.js';
 import * as bk from './backup.js';
 import * as L from './labels.js';
 
-export const VERSION = '1.8.0';
+export const VERSION = '1.8.1';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -642,7 +642,11 @@ document.addEventListener('click', async e => {
   if (d.wf) { V.wf = d.wf; render(); return; }
   if (d.key && F) {
     if (d.key === '⌫') F.amount = F.amount.slice(0, -1);
-    else if ((F.amount + d.key).replace(/^0+/, '').length <= 10) F.amount = (F.amount + d.key).replace(/^0+/, '');
+    else {
+      const v = (F.amount + d.key).replace(/^0+/, '');
+      // 残高合わせだけは「本当の残高 0円」を入れられる（ほかの記録で 0円 は意味が無いので入れない）
+      if (v.length <= 10) F.amount = v || (F.kind === 'adj' ? '0' : '');
+    }
     if (F.kind !== 'adj') readMeta();
     return drawSheet();
   }
