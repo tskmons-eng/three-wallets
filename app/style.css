@@ -221,3 +221,16 @@ html{touch-action:manipulation}
 .linkbar button{color:var(--accent);font-size:12px;white-space:nowrap}
 .linkrow{display:flex;gap:6px;flex-wrap:wrap}
 .chip.strong{border-color:var(--accent);color:var(--accent);font-weight:700}
+/* v1.9.0 追いかける印（お試し） */
+.pins{display:flex;flex-direction:column;gap:6px}
+.pin{width:100%;text-align:left;background:var(--surface);border-radius:var(--r);padding:8px 12px;display:flex;flex-direction:column;gap:4px;border-left:4px solid var(--warn)}
+.pin.done{border-left-color:var(--in)}
+.pin .ptop{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.pin .ptop b{font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pin .ptop .num{font-size:16px;font-weight:700;color:var(--out);white-space:nowrap}
+.pin.done .ptop .num{color:var(--in)}
+.pin .psub{font-size:11px;color:var(--muted)}
+.pbar{height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}
+.pbar i{display:block;height:100%;background:var(--warn);border-radius:3px}
+.pin.done .pbar i,.pbar.done i{background:var(--in)}
+.pin:active{background:var(--sunk)}

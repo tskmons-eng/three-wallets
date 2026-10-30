@@ -145,7 +145,7 @@ export function budgetStatus(S, key) {
 }
 export const budgetLevel = ratio => ratio > 1 ? 'over' : ratio >= 0.8 ? 'warn' : '';
 
-const dayDiff = (a, b) => Math.round((Date.UTC(...b.split('-').map((n, i) => i === 1 ? n - 1 : +n)) - Date.UTC(...a.split('-').map((n, i) => i === 1 ? n - 1 : +n))) / 86400000);
+export const dayDiff = (a, b) => Math.round((Date.UTC(...b.split('-').map((n, i) => i === 1 ? n - 1 : +n)) - Date.UTC(...a.split('-').map((n, i) => i === 1 ? n - 1 : +n))) / 86400000);
 
 // アプリを開いたときに出すお知らせ（予算・返す期限）。id は「消した」を覚える目印で、状態が悪くなると変わる
 export function notices(S, todayStr) {
@@ -171,7 +171,7 @@ export function notices(S, todayStr) {
 // 始まりの記録を消しても、残りの記録の link は同じなので、まとまりは消えない。
 // 出た・入った：支出と収入。貸し借りは人との分だけ（人に貸した＝出た、人から返ってきた・借りた＝入った）。財布どうしは数えない
 export const linkable = r => r.kind === 'out' || r.kind === 'in' || r.kind === 'loan';
-function groupFlow(r) {
+export function groupFlow(r) {
   if (r.kind === 'out') return [r.amount, 0];
   if (r.kind === 'in') return [0, r.amount];
   if (r.kind === 'loan') {
@@ -212,6 +212,22 @@ export function tidyLinks(S) {
   for (const r of S.recs) if (r.link) count[r.link] = (count[r.link] || 0) + 1;
   for (const r of S.recs) if (r.link && count[r.link] < 2) delete r.link;
   if (S.groups) for (const id of Object.keys(S.groups)) if (!count[id] || count[id] < 2) delete S.groups[id];
+}
+
+// ---------- 追いかける印（お試し） ----------
+// 印の id は、まとまりの印（link）か、まだ紐づいていない記録の id。1件の記録から取り戻しを紐づけると、
+// linkTo でその記録の id がまとまりの印になるので、印の id はそのまま使える。
+// 戻り値：{ id, recs, out, in, rest（あと）, ratio（戻った÷出た）, days（何日目）, done（取り戻した） }。対象が消えていれば null
+export function pinView(S, pin, todayStr) {
+  const g = linkGroups(S).find(x => x.id === pin.id);
+  let recs, o = 0, n = 0;
+  if (g) { recs = g.recs; o = g.out; n = g.in; }
+  else {
+    const r = S.recs.find(x => x.id === pin.id || x.link === pin.id);
+    if (!r) return null;
+    recs = [r]; [o, n] = groupFlow(r);
+  }
+  return { id: pin.id, group: g || null, recs, out: o, in: n, rest: Math.max(o - n, 0), ratio: o > 0 ? n / o : 0, days: dayDiff(pin.at, todayStr) + 1, done: o > 0 && n >= o };
 }
 
 // 分類ボタンの並び：よく使う順

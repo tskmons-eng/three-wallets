@@ -1,9 +1,9 @@
-import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName, budgetStatus, budgetLevel, notices, pairKey, linkGroups, linkTo, tidyLinks, linkable } from './calc.js';
+import { pad, ymd, monthOf, yen, uid, shiftMonth, balance, effect, monthDelta, totals, applyFixed, usage, defaultState, isValidState, owed, loanPositions, netWorth, people, isPerson, personName, budgetStatus, budgetLevel, notices, pairKey, linkGroups, linkTo, tidyLinks, linkable, pinView } from './calc.js';
 import * as store from './store.js';
 import * as bk from './backup.js';
 import * as L from './labels.js';
 
-export const VERSION = '1.8.1';
+export const VERSION = '1.9.0';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -117,6 +117,7 @@ function home() {
   return `
   <div class="top"><h1>3つの財布</h1>${backupLine()}</div>
   ${noticeList()}
+  ${pinBlock()}
   <div class="wallets">${S.wallets.map(w => { const d = monthDelta(S, w.id, nowKey); return `
     <button class="wcard" data-act="wallet" data-w="${w.id}" aria-label="${esc(w.name)}の財布の詳細">
       <span class="wdot" style="background:${wColor(w.id)}"></span>
@@ -159,6 +160,47 @@ function noticeList() {
   if (!shown.length) return '';
   return `<div class="notices">${shown.map(n => `<div class="notice ${n.level}"><button class="ntext" ${n.act}>${esc(n.text)}</button>${n.id === 'backup' ? '' : `<button class="nx" data-act="dismiss" data-nid="${esc(n.id)}" aria-label="このお知らせを消す">×</button>`}</div>`).join('')}</div>`;
 }
+
+// 追いかける印（お試し）：取り戻したいお金。あといくら・何%・何日目を毎回目に入れる
+const pinOf = id => (S.pins || []).find(p => p.id === id);
+const pinName = v => v.group ? gName(v.group) : (v.recs[0].memo || recLabel(v.recs[0]));
+function pinViews() { return (S.pins || []).map(p => pinView(S, p, today())).filter(Boolean); }
+function pinBlock() {
+  const vs = pinViews();
+  if (!vs.length) return '';
+  return `<section><h3 class="sh">追いかけ中（押すと中身と「取り戻しを記録」）</h3><div class="pins">${vs.map(v => `
+    <button class="pin ${v.done ? 'done' : ''}" data-act="pinopen" data-p="${esc(v.id)}">
+      <div class="ptop"><b>★ ${esc(pinName(v))}</b><span class="num">${v.done ? `取り戻した！ +${yen(v.in - v.out)}` : `あと ${yen(v.rest)}`}</span></div>
+      <div class="bar pbar"><i style="width:${Math.min(1, v.ratio) * 100}%"></i></div>
+      <div class="psub num">出た ${yen(v.out)}・戻った ${yen(v.in)}・${Math.floor(v.ratio * 100)}%・${v.days}日目</div></button>`).join('')}</div></section>`;
+}
+function openPin(id) { F = { kind: 'pin', p: id }; drawSheet(); }
+function drawPin() {
+  const p = pinOf(F.p), v = p && pinView(S, p, today());
+  if (!v) { F = null; return drawSheet(); }
+  const last = v.recs[v.recs.length - 1];
+  layer.html = `<div class="scrim" data-act="close"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="追いかけ中"><div class="in">
+    ${sheetHead('★ ' + esc(pinName(v)))}
+    <div class="amount num">${v.done ? `<span class="i">+${yen(v.in - v.out)}</span>` : yen(v.rest)}<small>${v.done ? '円 取り戻した！' : '円 あと'}</small></div>
+    <div class="bar pbar ${v.done ? 'done' : ''}"><i style="width:${Math.min(1, v.ratio) * 100}%"></i></div>
+    <div class="sum3">
+      <div><small>出た</small><span class="num o">${yen(v.out)}</span></div>
+      <div><small>戻った</small><span class="num i">${yen(v.in)}</span></div>
+      <div><small>${v.days}日目</small><span class="num">${Math.floor(v.ratio * 100)}%</span></div>
+    </div>
+    <button class="btn" data-act="pinadd" data-m="in" data-t="${esc(last.id)}">＋取り戻しを記録</button>
+    <button class="btn ghost" data-act="pinadd" data-m="out" data-t="${esc(last.id)}">＋この件でさらに使った</button>
+    <div class="list">${v.recs.map(r => `<button class="hitem" data-act="edit" data-id="${r.id}">
+      <span>${esc(recLabel(r))}${r.memo ? `<span class="m">・${esc(r.memo)}</span>` : ''}</span>
+      <span class="num ${r.kind === 'in' ? 'i' : r.kind === 'out' ? 'o' : ''}">${yen(r.amount)}</span>
+      <span class="m">${esc(r.date.slice(5).replace('-', '/'))}</span></button>`).join('')}</div>
+    <button class="btn ghost" data-act="unpin" data-p="${esc(v.id)}">☆ 追いかけるのをやめる</button>
+  </div></div>`;
+}
+const pinChip = id => pinOf(id)
+  ? `<button class="chip strong" data-act="unpin" data-p="${esc(id)}">★ 追いかけ中（外す）</button>`
+  : `<button class="chip" data-act="pin" data-p="${esc(id)}">☆ 追いかける</button>`;
 
 // 紐づいたお金：まとまりごとに 出た・入った・差し引き。終わりにしたものは出さない
 const gName = g => L.groupName(S, g);
@@ -391,6 +433,7 @@ function drawSheet() {
   if (F.kind === 'wallet') return drawWallet();
   if (F.kind === 'drill') return drawDrill();
   if (F.kind === 'group') return drawGroup();
+  if (F.kind === 'pin') return drawPin();
   if (F.kind === 'linkpick') return drawLinkPick();
   if (F.kind === 'groupsdone') return drawDoneGroups();
   const u = usage(S);
@@ -450,7 +493,7 @@ function linkEdit() {
   const r = S.recs.find(x => x.id === F.editId);
   const g = r && r.link && linkGroups(S).find(x => x.id === r.link);
   return `<div class="linkrow">${g ? `<button class="chip" data-act="group" data-g="${esc(g.id)}">紐づけ：${esc(gName(g))}</button><button class="chip" data-act="unlink">外す</button>`
-    : `<button class="chip" data-act="linkpick">紐づける</button>`}<button class="chip strong" data-act="linkadd">＋この件に紐づけて追加</button></div>`;
+    : `<button class="chip" data-act="linkpick">紐づける</button>`}<button class="chip strong" data-act="linkadd">＋この件に紐づけて追加</button>${pinChip(r.link || r.id)}</div>`;
 }
 
 function readMeta() {
@@ -493,6 +536,7 @@ function drawGroup() {
       <div><small>差し引き</small><span class="num">${signed(g.net)}</span></div>
     </div>
     <button class="btn" data-act="groupadd">＋この件に追加</button>
+    <div class="linkrow">${pinChip(g.id)}</div>
     <div class="list">${g.recs.map(r => `<button class="hitem" data-act="edit" data-id="${r.id}">
       <span>${esc(recLabel(r))}${r.memo ? `<span class="m">・${esc(r.memo)}</span>` : ''}</span>
       <span class="num ${r.kind === 'in' ? 'i' : r.kind === 'out' ? 'o' : ''}">${yen(r.amount)}</span>
@@ -672,6 +716,10 @@ document.addEventListener('click', async e => {
     case 'drilladd': return F.k ? openEntry(null, F.k === 'both' ? {} : { mode: F.k }) : openEntry(null, { cat: F.cat });
     case 'drillall': F.allMonths = true; return drawSheet();
     case 'group': return openGroup(d.g);
+    case 'pinopen': return openPin(d.p);
+    case 'pin': S.pins = [...(S.pins || []).filter(p => p.id !== d.p), { id: d.p, at: today() }]; toast('追いかけ中に入れました（ホームの上に出ます）'); drawSheet(); render(); return save();
+    case 'unpin': S.pins = (S.pins || []).filter(p => p.id !== d.p); if (!S.pins.length) delete S.pins; toast('追いかけるのをやめました'); if (F && F.kind === 'pin') F = null; drawSheet(); render(); return save();
+    case 'pinadd': return openEntry(null, { linkTarget: d.t, mode: d.m });
     case 'groupsdone': return openDoneGroups();
     case 'groupadd': { const g = linkGroups(S).find(x => x.id === F.g); return openEntry(null, { linkTarget: g.recs[g.recs.length - 1].id }); }
     case 'groupdone': { S.groups = S.groups || {}; const m = S.groups[F.g] = S.groups[F.g] || {}; m.done = !m.done; if (!m.done) delete m.done; if (!Object.keys(m).length) delete S.groups[F.g]; drawSheet(); render(); return save(); }
